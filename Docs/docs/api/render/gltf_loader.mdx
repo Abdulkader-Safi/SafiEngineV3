@@ -1,0 +1,65 @@
+---
+title: glTF Loader
+description: Load a .glb / .gltf file into a SafiMesh + SafiMaterial.
+---
+
+# `safi_gltf_load`
+
+```c
+#include <safi/render/gltf_loader.h>
+```
+
+Minimal glTF 2.0 loader built on [cgltf](https://github.com/jkuhlmann/cgltf) and [stb_image](https://github.com/nothings/stb). The first-pass version walks the **first mesh's first primitive**, extracts `POSITION`, `NORMAL`, `TEXCOORD_0`, and the index buffer, and uploads everything to the GPU. If the primitive has a base-color texture it is loaded into the supplied material.
+
+## Function
+
+```c
+bool safi_gltf_load(SafiRenderer *r,
+                    const char   *path,
+                    SafiMesh     *out_mesh,
+                    SafiMaterial *inout_material);
+```
+
+| Parameter        | Description                                                       |
+| ---------------- | ----------------------------------------------------------------- |
+| `r`              | Active renderer                                                   |
+| `path`           | Path to `.gltf` or `.glb`                                         |
+| `out_mesh`       | Zero-initialised; receives the uploaded VBO/IBO                   |
+| `inout_material` | Must already be created; base-color texture is set if present     |
+
+Returns `false` on parse/load/upload error. Texture loading is best-effort — if decoding fails the mesh still loads and you draw with whatever color the material already had.
+
+## Scope & limitations
+
+The loader is intentionally minimal in the first pass:
+
+- Only the first primitive of the first mesh
+- No node graph / transforms
+- No skeletal animation
+- No morph targets
+- Missing normals are replaced with `(0, 1, 0)`
+- Indices are always converted to `uint32_t`
+
+Growing past these is a planned follow-up.
+
+## Example
+
+```c
+SafiMaterial mat;
+safi_material_create_unlit(&app.renderer, &mat, "assets/shaders/unlit.hlsl");
+
+SafiMesh mesh;
+if (!safi_gltf_load(&app.renderer, "assets/models/BoxTextured.glb", &mesh, &mat)) {
+    SAFI_LOG_ERROR("failed to load model");
+    return 1;
+}
+
+ecs_entity_t e = ecs_new(world);
+ecs_set(world, e, SafiTransform, { .rotation={0,0,0,1}, .scale={1,1,1} });
+ecs_set(world, e, SafiMeshRenderer, { .mesh = &mesh, .material = &mat });
+```
+
+## See also
+
+- [`SafiMesh`](./mesh), [`SafiMaterial`](./material)
+- [cgltf spec coverage](https://github.com/jkuhlmann/cgltf#features)

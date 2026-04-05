@@ -1,0 +1,76 @@
+---
+title: Shaders
+description: HLSL + SDL_shadercross = one shader, every backend.
+---
+
+# Shaders
+
+SafiEngine authors shaders in **HLSL** and compiles them at startup with **SDL_shadercross**. Shadercross produces SPIR-V, then translates to Metal MSL or D3D12 DXIL depending on which backend SDL_gpu picked at runtime. You never ship per-platform shaders, and the user never needs `glslangValidator`, `dxc`, or any other toolchain installed.
+
+```c
+#include <safi/render/shader.h>
+```
+
+## Function
+
+```c
+SDL_GPUShader *safi_shader_compile_hlsl(SafiRenderer   *r,
+                                        const char     *hlsl_source,
+                                        size_t          hlsl_length,
+                                        const char     *entrypoint,
+                                        SafiShaderStage stage,
+                                        uint32_t        num_samplers,
+                                        uint32_t        num_uniform_buffers,
+                                        uint32_t        num_storage_buffers,
+                                        uint32_t        num_storage_textures);
+```
+
+Returns a ready-to-bind `SDL_GPUShader*` or `NULL` on failure (see `SDL_GetError()`). The four trailing counts tell SDL_gpu how many of each resource the shader will bind at draw time.
+
+## Stages
+
+```c
+typedef enum SafiShaderStage {
+    SAFI_SHADER_STAGE_VERTEX,
+    SAFI_SHADER_STAGE_FRAGMENT,
+} SafiShaderStage;
+```
+
+Compute shaders aren't wrapped yet — call `SDL_ShaderCross_CompileComputePipelineFromHLSL` directly if you need them.
+
+## HLSL bindings cheat sheet
+
+SDL_shadercross uses **DirectX register spaces** to route bindings to the right slot:
+
+| Space     | Purpose                             |
+| --------- | ----------------------------------- |
+| `space0`  | Vertex buffers (automatic)          |
+| `space1`  | Vertex-stage uniform buffers        |
+| `space2`  | Fragment-stage samplers + textures  |
+| `space3`  | Fragment-stage uniform buffers      |
+
+```hlsl
+cbuffer VSUBO : register(b0, space1) { float4x4 mvp; };   // vertex uniform
+Texture2D    albedo  : register(t0, space2);               // fragment texture
+SamplerState samp    : register(s0, space2);               // fragment sampler
+```
+
+## Example
+
+```c
+size_t len;
+char *src = read_whole_file("assets/shaders/unlit.hlsl", &len);
+
+SDL_GPUShader *vs = safi_shader_compile_hlsl(
+    &r, src, len, "vs_main", SAFI_SHADER_STAGE_VERTEX,
+    /*samplers*/ 0, /*ubo*/ 1, /*ssbo*/ 0, /*stex*/ 0);
+
+SDL_GPUShader *fs = safi_shader_compile_hlsl(
+    &r, src, len, "fs_main", SAFI_SHADER_STAGE_FRAGMENT,
+    /*samplers*/ 1, /*ubo*/ 0, /*ssbo*/ 0, /*stex*/ 0);
+```
+
+## See also
+
+- [`SafiMaterial`](./material) — builds a pipeline from two shaders
+- [SDL_shadercross docs](https://github.com/libsdl-org/SDL_shadercross)

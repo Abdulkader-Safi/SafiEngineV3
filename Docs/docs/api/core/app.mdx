@@ -1,0 +1,97 @@
+---
+title: SafiApp
+description: Top-level application object — bundles the window, renderer, and ECS world.
+---
+
+# `SafiApp`
+
+`SafiApp` owns the window, the SDL_gpu renderer, the flecs world, and the main loop. Every SafiEngine program creates exactly one.
+
+```c
+#include <safi/core/app.h>
+```
+
+## Types
+
+```c
+typedef struct SafiAppDesc {
+    const char *title;
+    int         width;
+    int         height;
+    bool        vsync;
+    bool        enable_debug_ui;
+} SafiAppDesc;
+
+typedef struct SafiApp {
+    SafiRenderer  renderer;
+    ecs_world_t  *world;
+    bool          running;
+    // ...internal fields...
+} SafiApp;
+```
+
+## Functions
+
+### `safi_app_init`
+
+```c
+bool safi_app_init(SafiApp *app, const SafiAppDesc *desc);
+```
+
+Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with the [stock components](../ecs/components), installs the `SafiInput` and `SafiTime` singletons, and optionally boots the ImGui overlay. Returns `false` on failure; check `SDL_GetError()` for details.
+
+### `safi_app_run`
+
+```c
+void safi_app_run(SafiApp *app);
+```
+
+Blocks the calling thread in the main loop until the window closes or a system sets `app->running = false`. Each iteration drains SDL events into `SafiInput`, updates `SafiTime`, then calls `ecs_progress(world, dt)` which runs every registered system through the flecs pipeline (`EcsOnLoad → EcsOnUpdate → EcsOnStore`).
+
+### `safi_app_tick`
+
+```c
+bool safi_app_tick(SafiApp *app);
+```
+
+Runs a single frame. Useful when embedding the engine in another loop or writing tests. Returns `false` when the app should exit.
+
+### `safi_app_shutdown`
+
+```c
+void safi_app_shutdown(SafiApp *app);
+```
+
+Tears everything down in reverse order (ImGui → world → renderer → SDL).
+
+### `safi_app_world`
+
+```c
+static inline ecs_world_t *safi_app_world(SafiApp *app);
+```
+
+Returns the underlying flecs world so you can register systems and spawn entities.
+
+## Example
+
+```c title="examples/gltf_viewer/main.c"
+SafiApp app;
+safi_app_init(&app, &(SafiAppDesc){
+    .title = "SafiEngine — glTF Viewer",
+    .width = 1280, .height = 720,
+    .vsync = true,
+    .enable_debug_ui = true,
+});
+
+ecs_world_t *world = safi_app_world(&app);
+// ...register systems, spawn entities...
+
+safi_app_run(&app);
+safi_app_shutdown(&app);
+```
+
+## See also
+
+- [`SafiRenderer`](../render/renderer)
+- [`SafiTime`](./time)
+- [ECS overview](../ecs/overview)

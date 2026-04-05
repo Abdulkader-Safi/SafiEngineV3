@@ -1,0 +1,51 @@
+---
+title: Render Overview
+description: SDL_gpu, shaders, meshes, materials — the frame lifecycle of SafiEngine.
+---
+
+# Render Overview
+
+SafiEngine's renderer is a thin wrapper around the **SDL_gpu** API introduced in SDL 3. SDL_gpu is Khronos-style, explicit, and portable — the same code runs on Metal (macOS/iOS), Vulkan (Linux/Windows/Android), and D3D12 (Windows) without `#ifdef`s.
+
+## Frame lifecycle
+
+```text
+safi_renderer_begin_frame(r)
+  ├─ SDL_AcquireGPUCommandBuffer
+  ├─ SDL_WaitAndAcquireGPUSwapchainTexture
+  ├─ (resize depth texture if needed)
+  └─ SDL_BeginGPURenderPass  (color + depth)
+
+<user draw calls via SDL_BindGPU…, SDL_DrawGPU…>
+
+safi_debug_ui_render(r)         // ImGui on top
+safi_renderer_end_frame(r)
+  ├─ SDL_EndGPURenderPass
+  └─ SDL_SubmitGPUCommandBuffer
+```
+
+Only one render pass per frame in the first-pass engine. Adding more passes (shadow maps, post-processing) is a future evolution.
+
+## Shaders: one source, every backend
+
+Shaders are authored in **HLSL** and compiled at runtime by [SDL_shadercross](./shader). Shadercross produces SPIR-V, then re-targets it to Metal MSL or D3D12 DXIL depending on the backend SDL picked at startup. You never ship a platform-specific shader — and you don't need `glslangValidator` or `dxc` installed on the user's machine.
+
+## Coordinate conventions
+
+| Axis   | Meaning       |
+| ------ | ------------- |
+| `+X`   | right         |
+| `+Y`   | up            |
+| `-Z`   | forward       |
+| Wind.  | counter-clockwise = front (SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE) |
+| Depth  | `SDL_GPU_COMPAREOP_LESS`, `clear = 1.0` |
+
+These match cglm's `glm_lookat` / `glm_perspective` defaults, so you can hand camera matrices straight to the shader without sign flips.
+
+## See also
+
+- [`SafiRenderer`](./renderer)
+- [`SafiMesh`](./mesh)
+- [`SafiMaterial`](./material)
+- [`safi_shader_compile_hlsl`](./shader)
+- [`safi_gltf_load`](./gltf_loader)

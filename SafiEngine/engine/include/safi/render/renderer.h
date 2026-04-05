@@ -1,0 +1,54 @@
+/**
+ * safi/render/renderer.h — SDL_gpu device wrapper.
+ *
+ * Owns the SDL_GPUDevice, window, depth texture, and the per-frame command
+ * buffer / render pass. One renderer per SafiApp.
+ */
+#ifndef SAFI_RENDER_RENDERER_H
+#define SAFI_RENDER_RENDERER_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <SDL3/SDL_gpu.h>
+#include <SDL3/SDL_video.h>
+
+typedef struct SafiRenderer {
+    SDL_Window    *window;
+    SDL_GPUDevice *device;
+
+    SDL_GPUTexture       *depth_texture;
+    uint32_t              depth_w;
+    uint32_t              depth_h;
+    SDL_GPUTextureFormat  swapchain_format;
+    SDL_GPUTextureFormat  depth_format;
+
+    /* Per-frame, valid only between begin_frame and end_frame. */
+    SDL_GPUCommandBuffer *cmd;
+    SDL_GPUTexture       *swapchain_tex;
+    uint32_t              swapchain_w;
+    uint32_t              swapchain_h;
+    SDL_GPURenderPass    *pass;
+    bool                  frame_active;
+} SafiRenderer;
+
+typedef struct SafiRendererDesc {
+    const char *title;
+    int         width;
+    int         height;
+    bool        vsync;
+} SafiRendererDesc;
+
+bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc);
+void safi_renderer_shutdown(SafiRenderer *r);
+
+/* Acquire the swapchain texture and begin the main render pass. Returns
+ * false if the swapchain wasn't ready (e.g. window minimized); in that case
+ * skip rendering for this frame. */
+bool safi_renderer_begin_frame(SafiRenderer *r);
+
+/* End the render pass and submit the command buffer. */
+void safi_renderer_end_frame(SafiRenderer *r);
+
+const char *safi_renderer_backend_name(const SafiRenderer *r);
+
+#endif /* SAFI_RENDER_RENDERER_H */

@@ -1,0 +1,75 @@
+---
+title: SafiMesh
+description: GPU vertex and index buffers for drawable geometry.
+---
+
+# `SafiMesh`
+
+```c
+#include <safi/render/mesh.h>
+```
+
+A `SafiMesh` is a pair of `SDL_GPUBuffer`s (vertex + index) plus their counts. The engine uses a fixed interleaved vertex layout so the same material pipeline can draw any mesh.
+
+## Vertex layout
+
+```c
+typedef struct SafiVertex {
+    float position[3];   // location 0, FLOAT3
+    float normal[3];     // location 1, FLOAT3
+    float uv[2];         // location 2, FLOAT2
+} SafiVertex;
+```
+
+Pitch is `sizeof(SafiVertex)` (32 bytes). Indices are always 32-bit unsigned.
+
+## Types
+
+```c
+typedef struct SafiMesh {
+    SDL_GPUBuffer *vbo;
+    SDL_GPUBuffer *ibo;
+    uint32_t       vertex_count;
+    uint32_t       index_count;
+} SafiMesh;
+```
+
+## Functions
+
+### `safi_mesh_create`
+
+```c
+bool safi_mesh_create(SafiRenderer     *r,
+                      SafiMesh         *out,
+                      const SafiVertex *vertices, uint32_t vertex_count,
+                      const uint32_t   *indices,  uint32_t index_count);
+```
+
+Creates the VBO and IBO, then uploads `vertices` and `indices` through a transfer buffer. Returns `false` on any failure (out-of-memory, invalid device, etc.).
+
+### `safi_mesh_destroy`
+
+```c
+void safi_mesh_destroy(SafiRenderer *r, SafiMesh *mesh);
+```
+
+Releases both GPU buffers.
+
+## Example — triangle
+
+```c
+SafiVertex tri[3] = {
+    { {-0.5f,-0.5f, 0}, {0,0,1}, {0,0} },
+    { { 0.5f,-0.5f, 0}, {0,0,1}, {1,0} },
+    { { 0.0f, 0.5f, 0}, {0,0,1}, {0.5f,1} },
+};
+uint32_t idx[3] = {0,1,2};
+
+SafiMesh m;
+safi_mesh_create(&app.renderer, &m, tri, 3, idx, 3);
+```
+
+## See also
+
+- [`safi_gltf_load`](./gltf_loader) — loads a mesh straight from a .glb
+- [`SafiMaterial`](./material)

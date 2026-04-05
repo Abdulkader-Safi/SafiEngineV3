@@ -1,0 +1,61 @@
+---
+title: SafiInput
+description: Keyboard and mouse snapshot singleton — read-only from gameplay systems.
+---
+
+# `SafiInput`
+
+```c
+#include <safi/input/input.h>
+```
+
+Input is exposed as an ECS singleton. During the `EcsOnLoad` phase the engine drains SDL's event queue and writes the current state into `SafiInput`. Gameplay systems then read it — **never** call `SDL_PollEvent` yourself or you'll steal events from both the engine and ImGui.
+
+## Type
+
+```c
+typedef struct SafiInput {
+    bool keys[SDL_SCANCODE_COUNT];          // held-down state this frame
+    bool keys_pressed[SDL_SCANCODE_COUNT];  // true for one frame on press
+    bool keys_released[SDL_SCANCODE_COUNT]; // true for one frame on release
+
+    float mouse_x,  mouse_y;                // window-space
+    float mouse_dx, mouse_dy;               // delta since last frame
+    bool  mouse_buttons[8];
+
+    bool  quit_requested;                   // window close or Cmd+Q
+} SafiInput;
+```
+
+## Reading from a system
+
+```c
+static void move_system(ecs_iter_t *it) {
+    const SafiInput *in = ecs_singleton_get(it->world, SafiInput);
+    SafiTransform   *t  = ecs_field(it, SafiTransform, 0);
+    float speed = 3.0f * it->delta_time;
+    for (int i = 0; i < it->count; ++i) {
+        if (in->keys[SDL_SCANCODE_W]) t[i].position[2] -= speed;
+        if (in->keys[SDL_SCANCODE_S]) t[i].position[2] += speed;
+        if (in->keys[SDL_SCANCODE_A]) t[i].position[0] -= speed;
+        if (in->keys[SDL_SCANCODE_D]) t[i].position[0] += speed;
+    }
+}
+```
+
+## Scancodes vs keycodes
+
+SafiEngine indexes `keys[]` by **scancode** (physical key position) — this is usually what games want. If you need layout-aware input (e.g. letters in a rename dialog), handle SDL text-input events yourself; the engine won't consume them.
+
+## Helper
+
+```c
+static inline bool safi_input_is_down(const SafiInput *in, int scancode);
+```
+
+Small convenience so call sites read clearly.
+
+## See also
+
+- [Systems](../ecs/systems)
+- [SDL scancodes](https://wiki.libsdl.org/SDL3/SDL_Scancode)

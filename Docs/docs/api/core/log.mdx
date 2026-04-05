@@ -1,0 +1,31 @@
+---
+title: Logging
+description: Minimal logging façade over SDL_Log — info, warn, error, debug.
+---
+
+# Logging
+
+```c
+#include <safi/core/log.h>
+```
+
+SafiEngine forwards logging to SDL's logging system so it shows up in whatever channel the platform uses (stdout on desktop, Console.app on macOS, logcat on Android, etc.).
+
+## Macros
+
+```c
+SAFI_LOG_INFO("Loaded %d entities",  count);
+SAFI_LOG_WARN("shader '%s' missing normal", path);
+SAFI_LOG_ERROR("SDL_CreateGPUDevice: %s", SDL_GetError());
+SAFI_LOG_DEBUG("frame=%llu dt=%.3f ms", frame, dt * 1000.0f);
+```
+
+All four accept `printf`-style format strings. `SAFI_LOG_DEBUG` is enabled only when SDL's debug priority is on (it is in `Debug` CMake configurations).
+
+## Why macros?
+
+Using macros lets us inline `SDL_Log*` calls without an intermediate function call and keeps the engine's logging zero-cost when disabled. No varargs indirection, no runtime formatting overhead you didn't ask for.
+
+:::tip
+Prefer these macros over direct `printf` — they route through SDL, which integrates with platform log viewers and respects `SDL_SetLogPriority`.
+:::

@@ -1,0 +1,88 @@
+---
+title: Stock Components
+description: Built-in ECS components — Transform, Camera, MeshRenderer, Name, Spin.
+---
+
+# Stock Components
+
+```c
+#include <safi/ecs/components.h>
+```
+
+Every world created by `safi_ecs_create` (or `safi_app_init`) has these registered. Attach them to entities with `ecs_set` / `ecs_add`.
+
+## `SafiTransform`
+
+```c
+typedef struct SafiTransform {
+    vec3   position;   // world-space translation
+    versor rotation;   // quaternion (x, y, z, w)
+    vec3   scale;
+} SafiTransform;
+
+static inline SafiTransform safi_transform_identity(void);
+```
+
+Use `safi_transform_identity()` for a sensible default (zero position, unit quaternion, unit scale).
+
+## `SafiCamera`
+
+```c
+typedef struct SafiCamera {
+    float fov_y_radians;
+    float z_near;
+    float z_far;
+    vec3  target;
+    mat4  view;   // recomputed per frame by the render system
+    mat4  proj;
+} SafiCamera;
+```
+
+## `SafiMeshRenderer`
+
+```c
+typedef struct SafiMeshRenderer {
+    SafiMesh     *mesh;
+    SafiMaterial *material;
+} SafiMeshRenderer;
+```
+
+The render system queries `(SafiTransform, SafiMeshRenderer)` and issues one draw call per matching entity.
+
+## `SafiName`
+
+```c
+typedef struct SafiName { const char *value; } SafiName;
+```
+
+Optional debug-display name; the ImGui inspector shows it.
+
+## `SafiSpin`
+
+```c
+typedef struct SafiSpin {
+    vec3  axis;
+    float speed;   // radians per second
+} SafiSpin;
+```
+
+Shipped with the engine so the first demo can spin a cube with three lines of code.
+
+## Example
+
+```c
+ecs_entity_t e = ecs_new(world);
+ecs_set(world, e, SafiTransform, {
+    .position = {0, 0, 0},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {1, 1, 1},
+});
+ecs_set(world, e, SafiMeshRenderer, { .mesh = &mesh, .material = &mat });
+ecs_set(world, e, SafiName, { .value = "Hero" });
+ecs_set(world, e, SafiSpin, { .axis = {0, 1, 0}, .speed = 1.5f });
+```
+
+## See also
+
+- [Systems](./systems)
+- [`SafiMesh`](../render/mesh) / [`SafiMaterial`](../render/material)

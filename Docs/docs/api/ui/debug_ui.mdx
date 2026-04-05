@@ -1,0 +1,68 @@
+---
+title: Debug UI (Dear ImGui)
+description: cimgui bindings for Dear ImGui with the SDL3 + SDL_gpu backends.
+---
+
+# Debug UI
+
+SafiEngine ships Dear ImGui integrated through **cimgui** (the official C bindings) and a tiny C++ bridge. From application code everything is plain C — you call `ig*` functions just like in C++ ImGui, minus the namespace.
+
+```c
+#include <safi/ui/debug_ui.h>
+#include <cimgui.h>
+```
+
+:::tip One cpp file
+The engine library itself is 100% C. The only C++ translation unit in the project is `cmake/cimgui_bridge.cpp`, which re-exports the ImGui SDL3 + SDL_gpu backends with `extern "C"` linkage. You never have to touch it.
+:::
+
+## Lifecycle
+
+The debug UI is opt-in via `SafiAppDesc.enable_debug_ui`. When enabled:
+
+1. `safi_app_init` calls `safi_debug_ui_init` → creates the ImGui context and boots both backends.
+2. Each frame, after `safi_renderer_begin_frame`, call `safi_debug_ui_begin_frame` before any widget calls.
+3. Draw widgets with `igBegin / igText / igDragFloat3 / ...`.
+4. Call `safi_debug_ui_render` **inside** the active render pass (before `safi_renderer_end_frame`).
+5. `safi_app_shutdown` calls `safi_debug_ui_shutdown`.
+
+The engine's input system forwards SDL events to ImGui automatically — you don't need to call anything for input to work.
+
+## Functions
+
+```c
+bool safi_debug_ui_init(SafiRenderer *r);
+void safi_debug_ui_shutdown(SafiRenderer *r);
+void safi_debug_ui_process_event(const void *sdl_event);  // called by the engine
+void safi_debug_ui_begin_frame(SafiRenderer *r);
+void safi_debug_ui_render(SafiRenderer *r);
+```
+
+## Example — transform inspector
+
+```c
+if (app.debug_ui_enabled) {
+    safi_debug_ui_begin_frame(&app.renderer);
+
+    igBegin("Inspector", NULL, 0);
+    igText("Backend: %s", safi_renderer_backend_name(&app.renderer));
+    igText("FPS: %.1f", 1.0f / it->delta_time);
+    igSeparator();
+    igDragFloat3("position", xf->position, 0.01f, -10, 10, "%.2f", 0);
+    igDragFloat4("rotation", xf->rotation, 0.01f, -1, 1,   "%.3f", 0);
+    igDragFloat3("scale",    xf->scale,    0.01f,  0.01f, 10, "%.2f", 0);
+    igEnd();
+
+    safi_debug_ui_render(&app.renderer);
+}
+```
+
+## cimgui API surface
+
+cimgui mirrors every ImGui function under an `ig` prefix and replaces default arguments with explicit parameters. If your editor has clangd wired up, jumping into `cimgui.h` shows you everything available.
+
+## See also
+
+- [`SafiRenderer`](../render/renderer)
+- [cimgui repository](https://github.com/cimgui/cimgui)
+- [Dear ImGui demo](https://github.com/ocornut/imgui) — `igShowDemoWindow(NULL)` is available

@@ -1,0 +1,83 @@
+---
+title: SafiMaterial
+description: Graphics pipeline + sampler + base-color texture.
+---
+
+# `SafiMaterial`
+
+```c
+#include <safi/render/material.h>
+```
+
+The first-pass engine ships a single material type: **unlit textured**. It owns a `SDL_GPUGraphicsPipeline`, a `SDL_GPUSampler`, and (optionally) a base-color `SDL_GPUTexture`.
+
+## Types
+
+```c
+typedef struct SafiMaterial {
+    SDL_GPUGraphicsPipeline *pipeline;
+    SDL_GPUTexture          *base_color;
+    SDL_GPUSampler          *sampler;
+} SafiMaterial;
+```
+
+## Functions
+
+### `safi_material_create_unlit`
+
+```c
+bool safi_material_create_unlit(SafiRenderer *r,
+                                SafiMaterial *out,
+                                const char   *hlsl_path);
+```
+
+Reads the given HLSL file, compiles it through `safi_shader_compile_hlsl` for both stages (`vs_main` and `fs_main`), and builds a graphics pipeline that:
+
+- reads `SafiVertex` from vertex buffer slot 0
+- draws triangle lists with back-face culling and counter-clockwise front faces
+- writes depth using `LESS` comparison
+- blends one color attachment in swapchain format
+
+Also creates a trilinear `REPEAT` sampler.
+
+### `safi_material_set_base_color_rgba8`
+
+```c
+bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
+                                        SafiMaterial  *m,
+                                        const uint8_t *pixels,
+                                        uint32_t width, uint32_t height);
+```
+
+Uploads an RGBA8 texture and binds it as the base color. Replaces any previously bound texture. `safi_gltf_load` calls this automatically when the glTF has a base-color texture.
+
+### `safi_material_destroy`
+
+```c
+void safi_material_destroy(SafiRenderer *r, SafiMaterial *m);
+```
+
+## Shader inputs
+
+The default HLSL uses these bindings — if you write your own shader, match them or override the pipeline:
+
+| Binding             | Purpose            |
+| ------------------- | ------------------ |
+| `cbuffer b0, space1` (vertex stage) | `float4x4 mvp` uniform, pushed via `SDL_PushGPUVertexUniformData` |
+| `Texture2D t0, space2` (fragment)   | base color texture |
+| `SamplerState s0, space2`           | sampler            |
+
+## Example
+
+```c
+SafiMaterial mat;
+safi_material_create_unlit(&app.renderer, &mat, "assets/shaders/unlit.hlsl");
+
+uint8_t white[] = {255, 255, 255, 255};
+safi_material_set_base_color_rgba8(&app.renderer, &mat, white, 1, 1);
+```
+
+## See also
+
+- [`safi_shader_compile_hlsl`](./shader)
+- [`SafiMesh`](./mesh)

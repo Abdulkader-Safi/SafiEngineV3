@@ -1,0 +1,90 @@
+# ---- Local / OS ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.local
+*.log*
+*.swp
+*.swo
+
+# ---- Docs site (rspress / bun / node) --------------------------------------
+node_modules
+dist/
+doc_build/
+Docs/doc_build/
+Docs/dist/
+Docs/node_modules/
+Docs/.rspress/
+
+# ---- IDE / editors ---------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.zed/
+*.iml
+
+# ---- clangd / LSP cache ----------------------------------------------------
+.cache/
+.clangd/
+compile_commands.json
+SafiEngine/compile_commands.json
+
+# ---- CMake build trees -----------------------------------------------------
+build/
+build-*/
+cmake-build-*/
+out/
+SafiEngine/build/
+SafiEngine/build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CMakeUserPresets.json
+install_manifest.txt
+Testing/
+_deps/
+
+# ---- Compiled binaries / intermediates -------------------------------------
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.exp
+*.ilk
+*.pdb
+*.idb
+*.map
+*.gch
+*.pch
+
+# ---- Xcode / Visual Studio -------------------------------------------------
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# ---- SafiEngine assets downloaded at configure time ------------------------
+# cmake/Dependencies.cmake downloads this sample on first configure.
+SafiEngine/examples/gltf_viewer/assets/models/*.glb
+SafiEngine/examples/gltf_viewer/assets/models/*.gltf
+
+# ---- Generated shader artifacts (if any offline compilation is added) ------
+*.spv
+*.dxil
+*.metallib
+
+# ---- Python (tooling scripts, if added later) ------------------------------
+__pycache__/
+*.pyc
+.venv/
+venv/

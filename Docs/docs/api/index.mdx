@@ -1,6 +1,47 @@
 ---
 title: API Overview
+description: Reference for every public API you use to build games with SafiEngine.
 overview: true
 ---
 
-This is an API Overview page which outlines all the available APIs.
+# SafiEngine API
+
+SafiEngine is a pure-C game engine built on SDL3 (with the SDL_gpu API), flecs for ECS, cglm for math, Dear ImGui (via cimgui) for debug UI, and cgltf for model loading. Every subsystem below ships as part of the engine and is available by including `<safi/safi.h>` (umbrella header) or individual `<safi/…/…>` headers.
+
+:::tip Zero setup
+All dependencies are pulled in by CMake `FetchContent`. You only need CMake and a C/C++ compiler — no manual `brew install`, no submodules, no shader toolchains.
+:::
+
+## Subsystems
+
+| Area                        | Header prefix     | Description                                        |
+| --------------------------- | ----------------- | -------------------------------------------------- |
+| [Core](./core/app)          | `<safi/core/…>`   | `SafiApp`, logging, frame timing                   |
+| [ECS](./ecs/overview)       | `<safi/ecs/…>`    | flecs world, stock components, systems             |
+| [Render](./render/overview) | `<safi/render/…>` | SDL_gpu renderer, meshes, materials, shaders, glTF |
+| [Input](./input/input)      | `<safi/input/…>`  | Keyboard/mouse snapshot singleton                  |
+| [UI](./ui/debug_ui)         | `<safi/ui/…>`     | Dear ImGui integration                             |
+
+## Quickstart
+
+```c title="main.c"
+#include <safi/safi.h>
+
+int main(void) {
+    SafiApp app;
+    safi_app_init(&app, &(SafiAppDesc){
+        .title = "Hello SafiEngine",
+        .width = 1280,
+        .height = 720,
+        .vsync = true,
+        .enable_debug_ui = true,
+    });
+
+    // register components, systems, spawn entities...
+
+    safi_app_run(&app);
+    safi_app_shutdown(&app);
+}
+```
+
+See the full runnable example at `SafiEngine/examples/gltf_viewer/main.c`.

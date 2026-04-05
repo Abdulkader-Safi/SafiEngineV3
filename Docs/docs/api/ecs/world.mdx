@@ -1,0 +1,53 @@
+---
+title: World
+description: Create and destroy the flecs world pre-populated with SafiEngine built-ins.
+---
+
+# World
+
+```c
+#include <safi/ecs/ecs.h>
+```
+
+`SafiApp` already creates a world for you — most apps only need `safi_app_world()`. Use `safi_ecs_create` directly when you want to build a headless world (tests, tooling).
+
+## Functions
+
+### `safi_ecs_create`
+
+```c
+ecs_world_t *safi_ecs_create(void);
+```
+
+Calls `ecs_init()` and registers every stock SafiEngine component ([`SafiTransform`](./components), `SafiCamera`, `SafiMeshRenderer`, `SafiName`, `SafiSpin`, `SafiTime`, `SafiInput`). The returned pointer is owned by the caller.
+
+### `safi_ecs_destroy`
+
+```c
+void safi_ecs_destroy(ecs_world_t *world);
+```
+
+Frees everything. Safe to call with `NULL`.
+
+### `SAFI_COMPONENT`
+
+```c
+#define SAFI_COMPONENT(world, T) ECS_COMPONENT_DEFINE(world, T)
+```
+
+Readability alias — use this in application code so it's obvious you're registering a SafiEngine component rather than a raw flecs one.
+
+## Example
+
+```c
+ecs_world_t *world = safi_ecs_create();
+
+typedef struct Velocity { float x, y, z; } Velocity;
+SAFI_COMPONENT(world, Velocity);
+
+ecs_entity_t e = ecs_new(world);
+ecs_set(world, e, SafiTransform, {0});
+ecs_set(world, e, Velocity, { .y = 1.0f });
+
+safi_ecs_destroy(world);
+```

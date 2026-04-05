@@ -1,0 +1,92 @@
+---
+title: Systems
+description: Registering functions that run each frame and reading component data.
+---
+
+# Systems
+
+A system is a C function that runs once per frame (or per phase) over every entity matching a query. flecs invokes it during `ecs_progress`.
+
+```c
+#include <safi/ecs/ecs.h>
+```
+
+## Signature
+
+```c
+void my_system(ecs_iter_t *it);
+```
+
+`ecs_iter_t` exposes:
+
+| Field            | Meaning                               |
+| ---------------- | ------------------------------------- |
+| `it->count`      | number of entities in the current batch |
+| `it->delta_time` | seconds since the last frame          |
+| `it->world`      | the world pointer                     |
+| `it->ctx`        | arbitrary user pointer set at registration |
+
+Component arrays are fetched with `ecs_field`:
+
+```c
+SafiTransform *t = ecs_field(it, SafiTransform, 0);
+SafiSpin      *s = ecs_field(it, SafiSpin, 1);
+for (int i = 0; i < it->count; ++i) {
+    versor q; glm_quatv(q, s[i].speed * it->delta_time, s[i].axis);
+    glm_quat_mul(q, t[i].rotation, t[i].rotation);
+}
+```
+
+## Registering
+
+Two equivalent styles:
+
+```c
+// Terse macro form
+ECS_SYSTEM(world, spin_system, EcsOnUpdate, SafiTransform, SafiSpin);
+
+// Verbose descriptor form — needed when you want to pass `.ctx` or finer control
+ecs_system(world, {
+    .entity = ecs_entity(world, {
+        .name = "spin_system",
+        .add  = ecs_ids(ecs_dependson(EcsOnUpdate)),
+    }),
+    .callback = spin_system,
+    .ctx      = my_context_ptr,
+});
+```
+
+## Pipeline phases
+
+| Phase            | Typical work                                   |
+| ---------------- | ---------------------------------------------- |
+| `EcsOnLoad`      | input, asset streaming, network receive        |
+| `EcsPostLoad`    | derive caches from loaded data                 |
+| `EcsPreUpdate`   | spawn/despawn before the main update step      |
+| `EcsOnUpdate`    | **gameplay logic** (default phase)             |
+| `EcsOnValidate`  | assertions / constraints                       |
+| `EcsPostUpdate`  | post-physics, late transform updates           |
+| `EcsPreStore`    | prepare render data                            |
+| `EcsOnStore`     | **render**, network send                       |
+
+## Example — rotate with keyboard input
+
+```c
+static void rotate_system(ecs_iter_t *it) {
+    const SafiInput *in = ecs_singleton_get(it->world, SafiInput);
+    SafiTransform   *t  = ecs_field(it, SafiTransform, 0);
+    float rate = 1.5f * it->delta_time;
+    for (int i = 0; i < it->count; ++i) {
+        if (in->keys[SDL_SCANCODE_LEFT])  { versor q; glm_quatv(q,  rate, (vec3){0,1,0}); glm_quat_mul(q, t[i].rotation, t[i].rotation); }
+        if (in->keys[SDL_SCANCODE_RIGHT]) { versor q; glm_quatv(q, -rate, (vec3){0,1,0}); glm_quat_mul(q, t[i].rotation, t[i].rotation); }
+    }
+}
+
+ECS_SYSTEM(world, rotate_system, EcsOnUpdate, SafiTransform);
+```
+
+## See also
+
+- [Overview](./overview) — Bevy → flecs map
+- [Resources](./resources) — reading global state from systems
+- [Input](../input/input)

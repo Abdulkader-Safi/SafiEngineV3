@@ -1,1 +1,28 @@
-["index"]
+[
+  "index",
+  {
+    "type": "dir",
+    "name": "core",
+    "label": "Core"
+  },
+  {
+    "type": "dir",
+    "name": "ecs",
+    "label": "ECS"
+  },
+  {
+    "type": "dir",
+    "name": "render",
+    "label": "Render"
+  },
+  {
+    "type": "dir",
+    "name": "input",
+    "label": "Input"
+  },
+  {
+    "type": "dir",
+    "name": "ui",
+    "label": "UI"
+  }
+]

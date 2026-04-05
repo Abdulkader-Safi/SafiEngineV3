@@ -1,0 +1,59 @@
+---
+title: ECS Overview
+description: SafiEngine uses flecs — a fast C ECS whose API maps 1:1 to Bevy.
+---
+
+# ECS Overview
+
+SafiEngine's ECS is **flecs**. flecs is a pure-C archetype ECS with components, queries, systems, pipelines, observers, hierarchies, and prefabs. If you know Bevy, you already know flecs.
+
+```c
+#include <safi/ecs/ecs.h>
+#include <safi/ecs/components.h>
+```
+
+## Bevy → flecs concept map
+
+| Bevy                                         | flecs (C)                                                      |
+| -------------------------------------------- | -------------------------------------------------------------- |
+| `#[derive(Component)] struct Foo;`           | `ECS_COMPONENT_DEFINE(world, Foo);`                            |
+| `Resource`                                   | Singleton: `ecs_singleton_set(world, Foo, { ... });`           |
+| `Query<(&Transform, &mut Velocity)>`         | `ecs_query(world, { .terms = {...} })`                         |
+| `fn system(q: Query<…>)`                     | `ECS_SYSTEM(world, system, EcsOnUpdate, Transform, Velocity);` |
+| `App::default().add_systems(Update, s)`      | `.add = ecs_dependson(EcsOnUpdate)`                            |
+| Stages (`PreUpdate`, `Update`, `PostUpdate`) | Phases (`EcsOnLoad`, `EcsOnUpdate`, `EcsOnStore`)              |
+| `Commands`                                   | `ecs_new`, `ecs_set`, `ecs_delete`                             |
+| `Entity`                                     | `ecs_entity_t` (64-bit id)                                     |
+
+## Pipeline phases
+
+SafiEngine runs one pipeline per frame in this order:
+
+```text
+EcsOnLoad     → input pumped, SafiTime updated, asset streams
+EcsOnUpdate   → gameplay / logic systems (yours)
+EcsOnStore    → rendering system (reads state, draws)
+```
+
+You can also use `EcsPreUpdate`, `EcsPostUpdate`, and `EcsPreStore` — see the [flecs quickstart](https://www.flecs.dev/flecs/md_docs_2Quickstart.html).
+
+## Minimal example
+
+```c
+ECS_COMPONENT_DEFINE(world, MyTag);
+
+static void hello(ecs_iter_t *it) {
+    for (int i = 0; i < it->count; ++i) printf("tick\n");
+}
+
+ECS_SYSTEM(world, hello, EcsOnUpdate, MyTag);
+ecs_entity_t e = ecs_new(world);
+ecs_add(world, e, MyTag);
+```
+
+## See also
+
+- [`safi_ecs_create`](./world)
+- [Stock components](./components)
+- [Systems](./systems)
+- [Resources / singletons](./resources)

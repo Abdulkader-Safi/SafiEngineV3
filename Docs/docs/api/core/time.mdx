@@ -1,0 +1,45 @@
+---
+title: Time
+description: Per-frame delta time and frame counter, exposed as an ECS singleton.
+---
+
+# `SafiTime`
+
+```c
+#include <safi/core/time.h>
+```
+
+`SafiTime` is a singleton component the engine updates once per frame, just before `ecs_progress`. Systems read it via `ecs_singleton_get(world, SafiTime)`.
+
+## Type
+
+```c
+typedef struct SafiTime {
+    float    delta;        // seconds since last frame
+    float    elapsed;      // seconds since app start
+    uint64_t frame_count;  // monotonic frame counter
+} SafiTime;
+```
+
+## Example
+
+```c
+static void spin_system(ecs_iter_t *it) {
+    const SafiTime *t = ecs_singleton_get(it->world, SafiTime);
+    SafiTransform  *x = ecs_field(it, SafiTransform, 0);
+    for (int i = 0; i < it->count; ++i) {
+        float angle = t->delta * 1.5f;
+        versor q; glm_quatv(q, angle, (vec3){0, 1, 0});
+        glm_quat_mul(q, x[i].rotation, x[i].rotation);
+    }
+}
+```
+
+:::tip Prefer `it->delta_time`
+flecs already passes `delta_time` on the iterator. `SafiTime` is there for systems that need `elapsed` or `frame_count` (e.g. procedural animation, deterministic replays).
+:::
+
+## See also
+
+- [`SafiApp`](./app) — updates `SafiTime` each frame
+- [ECS resources](../ecs/resources)

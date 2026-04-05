@@ -1,0 +1,105 @@
+---
+title: SafiRenderer
+description: Window, SDL_GPUDevice, swapchain, and per-frame command buffer.
+---
+
+# `SafiRenderer`
+
+```c
+#include <safi/render/renderer.h>
+```
+
+One renderer per `SafiApp`. Owns the window, the `SDL_GPUDevice`, the depth texture, and the per-frame command buffer / render pass.
+
+## Types
+
+```c
+typedef struct SafiRendererDesc {
+    const char *title;
+    int         width;
+    int         height;
+    bool        vsync;
+} SafiRendererDesc;
+
+typedef struct SafiRenderer {
+    SDL_Window           *window;
+    SDL_GPUDevice        *device;
+    SDL_GPUTexture       *depth_texture;
+    SDL_GPUTextureFormat  swapchain_format;
+    SDL_GPUTextureFormat  depth_format;
+
+    // valid only between begin_frame and end_frame:
+    SDL_GPUCommandBuffer *cmd;
+    SDL_GPUTexture       *swapchain_tex;
+    SDL_GPURenderPass    *pass;
+    uint32_t              swapchain_w;
+    uint32_t              swapchain_h;
+    bool                  frame_active;
+} SafiRenderer;
+```
+
+## Functions
+
+### `safi_renderer_init`
+
+```c
+bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc);
+```
+
+Creates the SDL window, requests an SDL_GPUDevice that accepts **SPIR-V, MSL, and DXIL** (so the same binary runs on any platform SDL supports), claims the window for the device, and creates a matching depth texture. Returns `false` on failure.
+
+### `safi_renderer_shutdown`
+
+```c
+void safi_renderer_shutdown(SafiRenderer *r);
+```
+
+Releases the depth texture, unclaims the window, destroys the device and the window, and calls `SDL_Quit`.
+
+### `safi_renderer_begin_frame`
+
+```c
+bool safi_renderer_begin_frame(SafiRenderer *r);
+```
+
+Acquires a command buffer, waits for the next swapchain texture, recreates the depth texture if the window was resized, and opens a render pass that clears color to dark blue and depth to 1.0. Returns `false` when the swapchain isn't ready (e.g. the window is minimised) — **skip rendering for that frame**.
+
+### `safi_renderer_end_frame`
+
+```c
+void safi_renderer_end_frame(SafiRenderer *r);
+```
+
+Ends the render pass and submits the command buffer.
+
+### `safi_renderer_backend_name`
+
+```c
+const char *safi_renderer_backend_name(const SafiRenderer *r);
+```
+
+Returns "metal", "vulkan", "direct3d12", etc. Useful for `SAFI_LOG_INFO("GPU: %s", ...)`.
+
+## Example
+
+```c
+SafiRenderer r;
+safi_renderer_init(&r, &(SafiRendererDesc){
+    .title = "Hello", .width = 1280, .height = 720, .vsync = true,
+});
+
+while (running) {
+    if (safi_renderer_begin_frame(&r)) {
+        // SDL_BindGPUGraphicsPipeline(...);
+        // SDL_DrawGPUIndexedPrimitives(...);
+        safi_renderer_end_frame(&r);
+    }
+}
+
+safi_renderer_shutdown(&r);
+```
+
+## See also
+
+- [Frame lifecycle](./overview)
+- [`SafiMesh`](./mesh), [`SafiMaterial`](./material)

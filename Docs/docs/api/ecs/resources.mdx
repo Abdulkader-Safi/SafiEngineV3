@@ -1,0 +1,57 @@
+---
+title: Resources
+description: Singleton components — the flecs equivalent of Bevy `Resource`.
+---
+
+# Resources (Singletons)
+
+flecs doesn't have a dedicated "resource" concept the way Bevy does — it uses **singleton components** instead. A singleton is just a component set on the world entity itself. The API is slightly different from regular components but the concept is identical.
+
+## Built-in singletons
+
+| Singleton      | Description                          | Written by           |
+| -------------- | ------------------------------------ | -------------------- |
+| `SafiTime`     | per-frame delta, elapsed, frame idx  | `safi_app_tick`      |
+| `SafiInput`    | keyboard + mouse snapshot            | `safi_input_pump`    |
+
+## Reading
+
+```c
+const SafiInput *in = ecs_singleton_get(world, SafiInput);
+if (in->keys[SDL_SCANCODE_SPACE]) { /* jump */ }
+```
+
+## Writing (for your own resources)
+
+```c
+typedef struct GameSettings { float master_volume; bool debug_draw; } GameSettings;
+ECS_COMPONENT_DEFINE(world, GameSettings);
+
+ecs_singleton_set(world, GameSettings, { .master_volume = 0.8f, .debug_draw = true });
+
+// later...
+GameSettings *g = ecs_singleton_ensure(world, GameSettings);
+g->debug_draw = !g->debug_draw;
+ecs_singleton_modified(world, GameSettings);
+```
+
+## Querying a singleton from inside a system
+
+flecs will auto-inject it if you tag the term as singleton:
+
+```c
+ecs_system(world, {
+    .entity = ecs_entity(world, { .name = "audio_system", .add = ecs_ids(ecs_dependson(EcsOnUpdate)) }),
+    .query.terms = {
+        { .id = ecs_id(SafiTransform) },
+        { .id = ecs_id(GameSettings), .src.id = ecs_id(GameSettings) }, // singleton term
+    },
+    .callback = audio_system,
+});
+```
+
+## See also
+
+- [Systems](./systems)
+- [`SafiInput`](../input/input)
+- [`SafiTime`](../core/time)
