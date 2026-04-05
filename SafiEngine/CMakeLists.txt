@@ -26,6 +26,9 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 # ---- Dependencies (FetchContent, zero manual install) ---------------------
 include(Dependencies)
 
+# ---- Shader build pipeline (HLSL -> SPIR-V + MSL) -------------------------
+include(SafiShaders)
+
 # ---- Clangd / Zed IDE support ---------------------------------------------
 include(ClangdSetup)
 

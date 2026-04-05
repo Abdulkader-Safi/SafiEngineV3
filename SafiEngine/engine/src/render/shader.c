@@ -2,22 +2,22 @@
 #include "safi/core/log.h"
 
 #include <SDL3/SDL.h>
-#include <string.h>
 
-SDL_GPUShader *safi_shader_create(SafiRenderer *r, const char *source,
-                                  size_t source_length, const char *entrypoint,
-                                  SafiShaderStage stage, uint32_t num_samplers,
-                                  uint32_t num_uniform_buffers,
-                                  uint32_t num_storage_buffers,
-                                  uint32_t num_storage_textures) {
-  if (source_length == 0 && source)
-    source_length = strlen(source);
-
+SDL_GPUShader *safi_shader_create_blob(SafiRenderer      *r,
+                                       const void        *bytes,
+                                       size_t             size,
+                                       SDL_GPUShaderFormat format,
+                                       const char        *entrypoint,
+                                       SafiShaderStage    stage,
+                                       uint32_t           num_samplers,
+                                       uint32_t           num_uniform_buffers,
+                                       uint32_t           num_storage_buffers,
+                                       uint32_t           num_storage_textures) {
   SDL_GPUShaderCreateInfo info = {
-      .code_size = source_length,
-      .code = (const Uint8 *)source,
+      .code_size = size,
+      .code = (const Uint8 *)bytes,
       .entrypoint = entrypoint,
-      .format = SDL_GPU_SHADERFORMAT_MSL,
+      .format = format,
       .stage = (stage == SAFI_SHADER_STAGE_VERTEX)
                    ? SDL_GPU_SHADERSTAGE_VERTEX
                    : SDL_GPU_SHADERSTAGE_FRAGMENT,

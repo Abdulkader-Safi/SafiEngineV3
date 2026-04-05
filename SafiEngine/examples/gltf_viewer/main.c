@@ -190,7 +190,7 @@ static void render_system(ecs_iter_t *it) {
     SDL_GPUBufferBinding ibind = { .buffer = g_demo.mesh.ibo, .offset = 0 };
     SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-    /* Vertex uniform slot 0 -> MSL [[buffer(0)]]. Keep unlit.msl in sync. */
+    /* Vertex uniform slot 0 -> SDL_GPU vertex UBO slot 0. See unlit.hlsl. */
     SDL_PushGPUVertexUniformData(r->cmd, 0, &mvp, sizeof(mvp));
 
     if (g_demo.material.base_color) {
@@ -229,13 +229,13 @@ int main(int argc, char **argv) {
 
     ecs_world_t *world = safi_app_world(&app);
 
-    /* Load the demo material + glTF model. */
-    char shader_path[1024];
+    /* Load the demo material + glTF model. Compiled shaders live in the
+     * build tree at SAFI_DEMO_SHADER_DIR (see examples/gltf_viewer/CMakeLists.txt);
+     * the loader picks .spv or .msl based on the active GPU backend. */
     char model_path[1024];
-    snprintf(shader_path, sizeof(shader_path), "%s/shaders/unlit.msl", SAFI_DEMO_ASSET_DIR);
     snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
 
-    if (!safi_material_create_unlit(&app.renderer, &g_demo.material, shader_path)) {
+    if (!safi_material_create_unlit(&app.renderer, &g_demo.material, SAFI_DEMO_SHADER_DIR)) {
         SAFI_LOG_ERROR("failed to build unlit material");
         return 2;
     }

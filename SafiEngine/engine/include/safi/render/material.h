@@ -19,11 +19,13 @@ typedef struct SafiMaterial {
     SDL_GPUSampler          *sampler;
 } SafiMaterial;
 
-/* Build the default unlit-textured pipeline. Loads examples shaders from
- * disk; in a real app you'd package them into the binary. */
+/* Build the default unlit-textured pipeline. `shader_dir` points at the
+ * directory containing the compiled "unlit.<vert|frag>.<spv|msl>" artifacts
+ * produced by the CMake shader build (see cmake/SafiShaders.cmake). The
+ * loader picks the right format based on the active SDL_GPU backend. */
 bool safi_material_create_unlit(SafiRenderer *r,
                                 SafiMaterial *out,
-                                const char   *hlsl_path);
+                                const char   *shader_dir);
 
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m);
 

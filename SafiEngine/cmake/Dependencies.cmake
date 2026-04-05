@@ -23,13 +23,50 @@ FetchContent_Declare(SDL3
 FetchContent_MakeAvailable(SDL3)
 
 # ---------------------------------------------------------------------------
-# NOTE: SDL_shadercross has been dropped for the first milestone.
-# Its vendored DirectXShaderCompiler (DXC/LLVM) fails to build on modern
-# Apple libc++ (specializes std::is_nothrow_constructible). For now the
-# engine ships MSL and loads it directly via SDL_CreateGPUShader — Metal
-# only. Cross-platform shaders are a planned follow-up once either
-#   (a) a newer SDL_shadercross release fixes the DXC build on macOS, or
-#   (b) we offline-compile HLSL/GLSL → SPIR-V with glslang at build time.
+# Cross-platform shader toolchain: glslang + SPIRV-Cross (option (b) from the
+# previous milestone note — we skip SDL_shadercross because its vendored DXC
+# fails to build on modern Apple libc++). Shaders are authored once in HLSL,
+# compiled to SPIR-V by glslangValidator, then transpiled to MSL by
+# spirv-cross. DXIL (for the D3D12 fast-path on Windows) can be layered in
+# later via DXC on Windows CI hosts — SPIR-V already covers Vulkan on every
+# platform, so correctness is not blocked on DXIL.
+# ---------------------------------------------------------------------------
+
+# --- glslang (HLSL/GLSL → SPIR-V) -----------------------------------------
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)            # skip SPIRV-Tools optimizer dep
+set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+set(ENABLE_CTEST OFF CACHE BOOL "" FORCE)
+set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES ON CACHE BOOL "" FORCE) # we need the glslangValidator CLI
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG        15.0.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(glslang)
+
+# --- SPIRV-Cross (SPIR-V → MSL) -------------------------------------------
+set(SPIRV_CROSS_CLI ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_SHARED OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_STATIC ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_GLSL ON CACHE BOOL "" FORCE)   # required by MSL + CLI
+set(SPIRV_CROSS_ENABLE_MSL ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL ON CACHE BOOL "" FORCE)   # required by the CLI build
+set(SPIRV_CROSS_ENABLE_CPP ON CACHE BOOL "" FORCE)    # required by the CLI build
+set(SPIRV_CROSS_ENABLE_REFLECT ON CACHE BOOL "" FORCE) # required by the CLI build
+set(SPIRV_CROSS_ENABLE_UTIL ON CACHE BOOL "" FORCE)    # required by the CLI build
+set(SPIRV_CROSS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(spirv_cross
+    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Cross.git
+    GIT_TAG        vulkan-sdk-1.3.290.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(spirv_cross)
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

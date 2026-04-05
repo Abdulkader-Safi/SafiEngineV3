@@ -4,45 +4,24 @@
 #include "safi/core/log.h"
 
 #include <SDL3/SDL.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-
-static char *s_read_text_file(const char *path, size_t *out_len) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = (char *)malloc((size_t)sz + 1);
-    if (!buf) { fclose(f); return NULL; }
-    fread(buf, 1, (size_t)sz, f);
-    buf[sz] = '\0';
-    fclose(f);
-    if (out_len) *out_len = (size_t)sz;
-    return buf;
-}
 
 bool safi_material_create_unlit(SafiRenderer *r,
                                 SafiMaterial *out,
-                                const char   *hlsl_path) {
+                                const char   *shader_dir) {
     memset(out, 0, sizeof(*out));
 
-    size_t src_len = 0;
-    char *src = s_read_text_file(hlsl_path, &src_len);
-    if (!src) {
-        SAFI_LOG_ERROR("failed to read shader '%s'", hlsl_path);
+    SDL_GPUShader *vs = safi_shader_load(r, shader_dir, "unlit", "vs_main",
+                                         SAFI_SHADER_STAGE_VERTEX,
+                                         0, 1, 0, 0);
+    SDL_GPUShader *fs = safi_shader_load(r, shader_dir, "unlit", "fs_main",
+                                         SAFI_SHADER_STAGE_FRAGMENT,
+                                         1, 0, 0, 0);
+    if (!vs || !fs) {
+        if (vs) SDL_ReleaseGPUShader(r->device, vs);
+        if (fs) SDL_ReleaseGPUShader(r->device, fs);
         return false;
     }
-
-    SDL_GPUShader *vs = safi_shader_create(r, src, src_len, "vs_main",
-                                           SAFI_SHADER_STAGE_VERTEX,
-                                           0, 1, 0, 0);
-    SDL_GPUShader *fs = safi_shader_create(r, src, src_len, "fs_main",
-                                           SAFI_SHADER_STAGE_FRAGMENT,
-                                           1, 0, 0, 0);
-    free(src);
-    if (!vs || !fs) return false;
 
     SDL_GPUVertexBufferDescription vbd = {
         .slot              = 0,

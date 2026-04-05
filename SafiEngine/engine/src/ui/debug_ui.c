@@ -52,48 +52,10 @@ typedef struct SafiNkVertex {
     uint8_t  color[4];
 } SafiNkVertex;
 
-/* -- MSL shader source (Metal) --------------------------------------------
- * SDL_gpu MSL binding contract:
- *   vertex buffer (slot 0)         -> [[stage_in]] (internal high buffer index)
- *   vertex uniform slot 0          -> [[buffer(0)]]
- *   fragment texture slot 0        -> [[texture(0)]]
- *   fragment sampler slot 0        -> [[sampler(0)]]
- * Keep this in sync with SDL_PushGPUVertexUniformData(..., 0, ...) below.
- */
-static const char *SAFI_NK_SHADER_MSL =
-    "#include <metal_stdlib>\n"
-    "using namespace metal;\n"
-    "struct VSIn {\n"
-    "    float2 pos [[attribute(0)]];\n"
-    "    float2 uv  [[attribute(1)]];\n"
-    "    float4 col [[attribute(2)]];\n"
-    "};\n"
-    "struct VSOut {\n"
-    "    float4 pos [[position]];\n"
-    "    float2 uv;\n"
-    "    float4 col;\n"
-    "};\n"
-    "struct UBO {\n"
-    "    float2 inv_half_viewport;\n"   /* = {2.0/width, 2.0/height} */
-    "};\n"
-    "vertex VSOut nk_vs(VSIn in [[stage_in]],\n"
-    "                   constant UBO &ubo [[buffer(0)]])\n"
-    "{\n"
-    "    VSOut o;\n"
-    "    float2 ndc;\n"
-    "    ndc.x =  in.pos.x * ubo.inv_half_viewport.x - 1.0;\n"
-    "    ndc.y = -(in.pos.y * ubo.inv_half_viewport.y - 1.0);\n"
-    "    o.pos = float4(ndc, 0.0, 1.0);\n"
-    "    o.uv  = in.uv;\n"
-    "    o.col = in.col;\n"
-    "    return o;\n"
-    "}\n"
-    "fragment float4 nk_fs(VSOut in [[stage_in]],\n"
-    "                      texture2d<float> tex [[texture(0)]],\n"
-    "                      sampler          smp [[sampler(0)]])\n"
-    "{\n"
-    "    return in.col * tex.sample(smp, in.uv);\n"
-    "}\n";
+/* Nuklear's shader lives in engine/src/ui/shaders/nuklear.hlsl and is
+ * compiled to SPIR-V + MSL at build time (see cmake/SafiShaders.cmake).
+ * The generated artifacts land in SAFI_ENGINE_SHADER_DIR, which is
+ * injected as a compile definition from engine/CMakeLists.txt. */
 
 /* -- module state ---------------------------------------------------------- */
 static struct {
@@ -170,14 +132,19 @@ static bool s_upload_font_atlas(SafiRenderer *r,
 }
 
 static bool s_create_pipeline(SafiRenderer *r) {
-    size_t src_len = strlen(SAFI_NK_SHADER_MSL);
-    SDL_GPUShader *vs = safi_shader_create(r, SAFI_NK_SHADER_MSL, src_len,
-                                           "nk_vs", SAFI_SHADER_STAGE_VERTEX,
-                                           0, 1, 0, 0);
-    SDL_GPUShader *fs = safi_shader_create(r, SAFI_NK_SHADER_MSL, src_len,
-                                           "nk_fs", SAFI_SHADER_STAGE_FRAGMENT,
-                                           1, 0, 0, 0);
-    if (!vs || !fs) return false;
+    SDL_GPUShader *vs = safi_shader_load(r, SAFI_ENGINE_SHADER_DIR,
+                                         "nuklear", "nk_vs",
+                                         SAFI_SHADER_STAGE_VERTEX,
+                                         0, 1, 0, 0);
+    SDL_GPUShader *fs = safi_shader_load(r, SAFI_ENGINE_SHADER_DIR,
+                                         "nuklear", "nk_fs",
+                                         SAFI_SHADER_STAGE_FRAGMENT,
+                                         1, 0, 0, 0);
+    if (!vs || !fs) {
+        if (vs) SDL_ReleaseGPUShader(r->device, vs);
+        if (fs) SDL_ReleaseGPUShader(r->device, fs);
+        return false;
+    }
 
     SDL_GPUVertexBufferDescription vbd = {
         .slot               = 0,
