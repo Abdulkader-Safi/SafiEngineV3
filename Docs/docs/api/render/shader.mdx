@@ -1,31 +1,37 @@
 ---
 title: Shaders
-description: HLSL + SDL_shadercross = one shader, every backend.
+description: Creating SDL_GPUShader objects from source.
 ---
 
 # Shaders
-
-SafiEngine authors shaders in **HLSL** and compiles them at startup with **SDL_shadercross**. Shadercross produces SPIR-V, then translates to Metal MSL or D3D12 DXIL depending on which backend SDL_gpu picked at runtime. You never ship per-platform shaders, and the user never needs `glslangValidator`, `dxc`, or any other toolchain installed.
 
 ```c
 #include <safi/render/shader.h>
 ```
 
+`safi_shader_create` is a thin wrapper around `SDL_CreateGPUShader` that handles the boilerplate of building an `SDL_GPUShaderCreateInfo` and reporting errors through the engine's logger.
+
+:::tip First milestone: MSL only
+The current build targets SDL_gpu's **Metal** backend on macOS and expects shader source in **MSL (Metal Shading Language)**. The function signature is intentionally backend-agnostic so that when cross-platform shader compilation lands (via a working SDL_shadercross or offline glslang) callers won't need to change.
+:::
+
 ## Function
 
 ```c
-SDL_GPUShader *safi_shader_compile_hlsl(SafiRenderer   *r,
-                                        const char     *hlsl_source,
-                                        size_t          hlsl_length,
-                                        const char     *entrypoint,
-                                        SafiShaderStage stage,
-                                        uint32_t        num_samplers,
-                                        uint32_t        num_uniform_buffers,
-                                        uint32_t        num_storage_buffers,
-                                        uint32_t        num_storage_textures);
+SDL_GPUShader *safi_shader_create(SafiRenderer    *r,
+                                  const char      *source,
+                                  size_t           source_length,
+                                  const char      *entrypoint,
+                                  SafiShaderStage  stage,
+                                  uint32_t         num_samplers,
+                                  uint32_t         num_uniform_buffers,
+                                  uint32_t         num_storage_buffers,
+                                  uint32_t         num_storage_textures);
 ```
 
-Returns a ready-to-bind `SDL_GPUShader*` or `NULL` on failure (see `SDL_GetError()`). The four trailing counts tell SDL_gpu how many of each resource the shader will bind at draw time.
+Returns a ready-to-bind `SDL_GPUShader *` or `NULL` on failure (check `SDL_GetError()` for details). Pass `source_length = 0` and the function will call `strlen(source)` for you.
+
+The four trailing counts tell SDL_gpu how many of each resource the shader will bind at draw time — they must match the `[[buffer]] / [[texture]] / [[sampler]]` attributes in your MSL.
 
 ## Stages
 
@@ -36,41 +42,55 @@ typedef enum SafiShaderStage {
 } SafiShaderStage;
 ```
 
-Compute shaders aren't wrapped yet — call `SDL_ShaderCross_CompileComputePipelineFromHLSL` directly if you need them.
+Compute shaders aren't wrapped yet — call `SDL_CreateGPUComputePipeline` directly if you need them.
 
-## HLSL bindings cheat sheet
+## Metal binding layout (SDL_gpu rules)
 
-SDL_shadercross uses **DirectX register spaces** to route bindings to the right slot:
+SDL_gpu's Metal backend maps resources to Metal attribute slots like this:
 
-| Space     | Purpose                             |
-| --------- | ----------------------------------- |
-| `space0`  | Vertex buffers (automatic)          |
-| `space1`  | Vertex-stage uniform buffers        |
-| `space2`  | Fragment-stage samplers + textures  |
-| `space3`  | Fragment-stage uniform buffers      |
+| Resource                  | Metal attribute                                        |
+| ------------------------- | ------------------------------------------------------ |
+| Vertex buffer slot N      | `[[buffer(N)]]`                                        |
+| Vertex storage buffer N   | `[[buffer(numVertexBuffers + N)]]`                     |
+| Vertex uniform buffer N   | `[[buffer(numVertexBuffers + numStorageBuffers + N)]]` |
+| Fragment texture slot N   | `[[texture(N)]]`                                       |
+| Fragment sampler slot N   | `[[sampler(N)]]`                                       |
+| Fragment uniform buffer N | `[[buffer(numStorageBuffers + N)]]`                    |
 
-```hlsl
-cbuffer VSUBO : register(b0, space1) { float4x4 mvp; };   // vertex uniform
-Texture2D    albedo  : register(t0, space2);               // fragment texture
-SamplerState samp    : register(s0, space2);               // fragment sampler
+For the engine's unlit material (1 vertex buffer, 1 vertex uniform, 1 fragment texture+sampler):
+
+```sh
+vertex VSOut vs_main(VSIn in [[stage_in]],                    // slot 0
+                     constant UBO &u [[buffer(1)]]) { ... }   // slot 1 (1 VB + 0 SSBO)
+
+fragment float4 fs_main(VSOut in [[stage_in]],
+                        texture2d<float> tex [[texture(0)]],
+                        sampler          smp [[sampler(0)]]) { ... }
 ```
 
 ## Example
 
 ```c
-size_t len;
-char *src = read_whole_file("assets/shaders/unlit.hlsl", &len);
+static const char *MY_SHADER =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "vertex float4 vs_main(uint vid [[vertex_id]]) {\n"
+    "    float2 p = float2((vid << 1) & 2, vid & 2);\n"
+    "    return float4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n"
+    "fragment float4 fs_main() { return float4(1, 0, 0, 1); }\n";
 
-SDL_GPUShader *vs = safi_shader_compile_hlsl(
-    &r, src, len, "vs_main", SAFI_SHADER_STAGE_VERTEX,
-    /*samplers*/ 0, /*ubo*/ 1, /*ssbo*/ 0, /*stex*/ 0);
+SDL_GPUShader *vs = safi_shader_create(
+    &app.renderer, MY_SHADER, 0, "vs_main", SAFI_SHADER_STAGE_VERTEX,
+    /*samplers*/ 0, /*ubo*/ 0, /*ssbo*/ 0, /*stex*/ 0);
 
-SDL_GPUShader *fs = safi_shader_compile_hlsl(
-    &r, src, len, "fs_main", SAFI_SHADER_STAGE_FRAGMENT,
-    /*samplers*/ 1, /*ubo*/ 0, /*ssbo*/ 0, /*stex*/ 0);
+SDL_GPUShader *fs = safi_shader_create(
+    &app.renderer, MY_SHADER, 0, "fs_main", SAFI_SHADER_STAGE_FRAGMENT,
+    0, 0, 0, 0);
 ```
 
 ## See also
 
-- [`SafiMaterial`](./material) — builds a pipeline from two shaders
-- [SDL_shadercross docs](https://github.com/libsdl-org/SDL_shadercross)
+- [`SafiMaterial`](./material) — builds a graphics pipeline from a `vs_main` + `fs_main` pair
+- [Render overview](./overview) — frame lifecycle and coordinate conventions
+- [Apple Metal Shading Language spec](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf)

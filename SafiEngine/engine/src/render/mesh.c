@@ -40,6 +40,20 @@ bool safi_mesh_create(SafiRenderer     *r,
                       uint32_t          index_count) {
     memset(out, 0, sizeof(*out));
 
+    /* Compute AABB from the vertex stream. */
+    if (vertex_count > 0) {
+        out->aabb_min[0] = out->aabb_max[0] = vertices[0].position[0];
+        out->aabb_min[1] = out->aabb_max[1] = vertices[0].position[1];
+        out->aabb_min[2] = out->aabb_max[2] = vertices[0].position[2];
+        for (uint32_t i = 1; i < vertex_count; ++i) {
+            for (int k = 0; k < 3; ++k) {
+                float p = vertices[i].position[k];
+                if (p < out->aabb_min[k]) out->aabb_min[k] = p;
+                if (p > out->aabb_max[k]) out->aabb_max[k] = p;
+            }
+        }
+    }
+
     uint32_t vb_size = vertex_count * (uint32_t)sizeof(SafiVertex);
     uint32_t ib_size = index_count  * (uint32_t)sizeof(uint32_t);
 

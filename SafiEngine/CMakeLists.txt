@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(SafiEngine
     VERSION 0.1.0
-    DESCRIPTION "A pure-C game engine built on SDL3 GPU, flecs and Dear ImGui"
+    DESCRIPTION "A pure-C game engine built on SDL3 GPU, flecs and Nuklear"
     LANGUAGES C CXX
 )
 

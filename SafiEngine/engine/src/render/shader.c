@@ -1,53 +1,36 @@
 #include "safi/render/shader.h"
 #include "safi/core/log.h"
 
-#include <SDL3_shadercross/SDL_shadercross.h>
+#include <SDL3/SDL.h>
 #include <string.h>
 
-SDL_GPUShader *safi_shader_compile_hlsl(SafiRenderer   *r,
-                                        const char     *hlsl_source,
-                                        size_t          hlsl_length,
-                                        const char     *entrypoint,
-                                        SafiShaderStage stage,
-                                        uint32_t        num_samplers,
-                                        uint32_t        num_uniform_buffers,
-                                        uint32_t        num_storage_buffers,
-                                        uint32_t        num_storage_textures) {
-    /* Initialise shadercross once per process. Safe to call repeatedly. */
-    static bool initialised = false;
-    if (!initialised) {
-        if (!SDL_ShaderCross_Init()) {
-            SAFI_LOG_ERROR("SDL_ShaderCross_Init failed: %s", SDL_GetError());
-            return NULL;
-        }
-        initialised = true;
-    }
+SDL_GPUShader *safi_shader_create(SafiRenderer *r, const char *source,
+                                  size_t source_length, const char *entrypoint,
+                                  SafiShaderStage stage, uint32_t num_samplers,
+                                  uint32_t num_uniform_buffers,
+                                  uint32_t num_storage_buffers,
+                                  uint32_t num_storage_textures) {
+  if (source_length == 0 && source)
+    source_length = strlen(source);
 
-    SDL_ShaderCross_HLSL_Info hlsl_info = {
-        .source            = hlsl_source,
-        .entrypoint        = entrypoint,
-        .include_dir       = NULL,
-        .defines           = NULL,
-        .shader_stage      = (stage == SAFI_SHADER_STAGE_VERTEX)
-                                 ? SDL_SHADERCROSS_SHADERSTAGE_VERTEX
-                                 : SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT,
-        .enable_debug      = true,
-        .name              = entrypoint,
-        .props             = 0,
-    };
-    (void)hlsl_length;
+  SDL_GPUShaderCreateInfo info = {
+      .code_size = source_length,
+      .code = (const Uint8 *)source,
+      .entrypoint = entrypoint,
+      .format = SDL_GPU_SHADERFORMAT_MSL,
+      .stage = (stage == SAFI_SHADER_STAGE_VERTEX)
+                   ? SDL_GPU_SHADERSTAGE_VERTEX
+                   : SDL_GPU_SHADERSTAGE_FRAGMENT,
+      .num_samplers = num_samplers,
+      .num_storage_textures = num_storage_textures,
+      .num_storage_buffers = num_storage_buffers,
+      .num_uniform_buffers = num_uniform_buffers,
+  };
 
-    SDL_ShaderCross_GraphicsShaderMetadata metadata = {
-        .num_samplers         = num_samplers,
-        .num_storage_textures = num_storage_textures,
-        .num_storage_buffers  = num_storage_buffers,
-        .num_uniform_buffers  = num_uniform_buffers,
-    };
-
-    SDL_GPUShader *shader = SDL_ShaderCross_CompileGraphicsShaderFromHLSL(
-        r->device, &hlsl_info, &metadata, 0);
-    if (!shader) {
-        SAFI_LOG_ERROR("SDL_ShaderCross compile failed: %s", SDL_GetError());
-    }
-    return shader;
+  SDL_GPUShader *sh = SDL_CreateGPUShader(r->device, &info);
+  if (!sh) {
+    SAFI_LOG_ERROR("SDL_CreateGPUShader('%s') failed: %s", entrypoint,
+                   SDL_GetError());
+  }
+  return sh;
 }

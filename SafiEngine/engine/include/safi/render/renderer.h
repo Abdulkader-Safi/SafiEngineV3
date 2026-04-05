@@ -41,12 +41,20 @@ typedef struct SafiRendererDesc {
 bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc);
 void safi_renderer_shutdown(SafiRenderer *r);
 
-/* Acquire the swapchain texture and begin the main render pass. Returns
- * false if the swapchain wasn't ready (e.g. window minimized); in that case
- * skip rendering for this frame. */
+/* Acquire the command buffer + swapchain texture for this frame. Does NOT
+ * open a render pass — any copy passes (e.g. ImGui vertex upload) must run
+ * between this call and safi_renderer_begin_main_pass. Returns false if the
+ * swapchain wasn't ready (e.g. window minimized); skip the frame. */
 bool safi_renderer_begin_frame(SafiRenderer *r);
 
-/* End the render pass and submit the command buffer. */
+/* Open the engine's main color + depth render pass. Call once per frame
+ * after begin_frame and after any pre-pass uploads. */
+void safi_renderer_begin_main_pass(SafiRenderer *r);
+
+/* Close the main render pass. */
+void safi_renderer_end_main_pass(SafiRenderer *r);
+
+/* Submit the command buffer. */
 void safi_renderer_end_frame(SafiRenderer *r);
 
 const char *safi_renderer_backend_name(const SafiRenderer *r);

@@ -4,7 +4,7 @@ pageType: home
 hero:
   name: Safi Engine
   text: A pure-C game engine
-  tagline: SDL3 GPU · Bevy-style ECS · Dear ImGui · zero-setup CMake
+  tagline: SDL3 GPU · Bevy-style ECS · Nuklear · zero-setup CMake
   actions:
     - theme: brand
       text: API Reference
@@ -17,19 +17,19 @@ hero:
     alt: SafiEngine
 features:
   - title: Pure C11, zero dependencies to install
-    details: Just CMake and a C/C++ compiler. FetchContent pulls SDL3, flecs, cglm, cgltf, stb, cimgui, and SDL_shadercross on first configure. No brew, no apt, no submodules.
+    details: Just CMake and a C/C++ compiler. FetchContent pulls SDL3, flecs, cglm, cgltf, stb, and Nuklear on first configure. No brew, no apt, no submodules, no C++ in the engine.
     icon: 🧊
     link: /api/
-  - title: SDL_gpu cross-platform renderer
-    details: Modern explicit GPU API built on Metal, Vulkan, and D3D12. Write HLSL once and SDL_shadercross translates to MSL, SPIR-V, or DXIL at runtime.
+  - title: SDL_gpu renderer
+    details: Modern explicit GPU API with Metal, Vulkan, and D3D12 backends. Current milestone targets Metal on macOS with shaders authored in MSL; cross-platform shader pipelines are a planned follow-up.
     icon: 🎮
     link: /api/render/overview
   - title: Bevy-style ECS in C
     details: Powered by flecs. Components, queries, systems, pipelines, observers, and singletons — with a familiar Bevy-inspired API, just in plain C.
     icon: 🧬
     link: /api/ecs/overview
-  - title: Dear ImGui debug overlay
-    details: cimgui bindings with the SDL3 and SDL_gpu backends wired up out of the box. Drop inspectors and tooling into any scene with one call.
+  - title: Nuklear debug overlay
+    details: Single-header, pure-C immediate-mode UI with a built-in SDL_gpu backend. Drop inspectors, sliders, and tooling into any scene without dragging C++ into a C engine.
     icon: 🪟
     link: /api/ui/debug_ui
   - title: glTF 2.0 loader

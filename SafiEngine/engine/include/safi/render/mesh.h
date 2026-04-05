@@ -21,6 +21,11 @@ typedef struct SafiMesh {
     SDL_GPUBuffer *ibo;
     uint32_t       vertex_count;
     uint32_t       index_count;
+    /* Axis-aligned bounding box in local (model) space. Populated by
+     * safi_mesh_create and safi_gltf_load; useful for camera fitting,
+     * frustum culling, and picking. */
+    float          aabb_min[3];
+    float          aabb_max[3];
 } SafiMesh;
 
 bool safi_mesh_create(SafiRenderer     *r,

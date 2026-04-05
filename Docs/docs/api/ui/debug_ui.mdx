@@ -1,32 +1,42 @@
 ---
-title: Debug UI (Dear ImGui)
-description: cimgui bindings for Dear ImGui with the SDL3 + SDL_gpu backends.
+title: Debug UI (Nuklear)
+description: Pure-C immediate-mode debug overlay built on Nuklear and SDL_gpu.
 ---
 
 # Debug UI
 
-SafiEngine ships Dear ImGui integrated through **cimgui** (the official C bindings) and a tiny C++ bridge. From application code everything is plain C — you call `ig*` functions just like in C++ ImGui, minus the namespace.
+SafiEngine's debug overlay uses **[Nuklear](https://github.com/Immediate-Mode-UI/Nuklear)** — a single-header, pure-C immediate-mode UI library. The engine ships its own SDL_gpu backend (font atlas upload, vertex/index buffers, pipeline, scissor + draw) so the whole stack stays in C.
 
 ```c
 #include <safi/ui/debug_ui.h>
-#include <cimgui.h>
+
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+#define NK_INCLUDE_STANDARD_VARARGS
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#include <nuklear.h>
 ```
 
-:::tip One cpp file
-The engine library itself is 100% C. The only C++ translation unit in the project is `cmake/cimgui_bridge.cpp`, which re-exports the ImGui SDL3 + SDL_gpu backends with `extern "C"` linkage. You never have to touch it.
+:::warning Feature macros must match
+The engine's `debug_ui.c` defines `NK_IMPLEMENTATION` together with the seven `NK_INCLUDE_*` macros above. Your translation unit must define **exactly the same** set (without `NK_IMPLEMENTATION`) so the `nk_context` struct layout matches across TUs.
 :::
 
 ## Lifecycle
 
 The debug UI is opt-in via `SafiAppDesc.enable_debug_ui`. When enabled:
 
-1. `safi_app_init` calls `safi_debug_ui_init` → creates the ImGui context and boots both backends.
-2. Each frame, after `safi_renderer_begin_frame`, call `safi_debug_ui_begin_frame` before any widget calls.
-3. Draw widgets with `igBegin / igText / igDragFloat3 / ...`.
-4. Call `safi_debug_ui_render` **inside** the active render pass (before `safi_renderer_end_frame`).
-5. `safi_app_shutdown` calls `safi_debug_ui_shutdown`.
+1. `safi_app_init` calls `safi_debug_ui_init` — creates the Nuklear context, bakes the default font into an `SDL_GPUTexture`, builds the UI graphics pipeline.
+2. Each frame, after `safi_renderer_begin_frame` and **before** `safi_renderer_begin_main_pass`:
+   - `safi_debug_ui_begin_frame(r)` — opens the widget window.
+   - Build widgets with `nk_begin / nk_layout_row_dynamic / nk_label / nk_property_float / …`.
+   - `safi_debug_ui_prepare(r)` — runs `nk_convert` and uploads vertices/indices through a copy pass. Must happen before the main render pass opens; SDL_gpu forbids nested passes.
+3. After `safi_renderer_begin_main_pass` and any engine geometry, call `safi_debug_ui_render(r)` to record the Nuklear draw commands into the active render pass.
+4. `safi_app_shutdown` calls `safi_debug_ui_shutdown`.
 
-The engine's input system forwards SDL events to ImGui automatically — you don't need to call anything for input to work.
+The engine's input system already forwards SDL events to Nuklear — you don't need to call anything extra for mouse, keyboard, or text input.
 
 ## Functions
 
@@ -35,7 +45,9 @@ bool safi_debug_ui_init(SafiRenderer *r);
 void safi_debug_ui_shutdown(SafiRenderer *r);
 void safi_debug_ui_process_event(const void *sdl_event);  // called by the engine
 void safi_debug_ui_begin_frame(SafiRenderer *r);
-void safi_debug_ui_render(SafiRenderer *r);
+void safi_debug_ui_prepare(SafiRenderer *r);             // pre-pass, uploads UI vbo/ibo
+void safi_debug_ui_render(SafiRenderer *r);              // in-pass, records draws
+struct nk_context *safi_debug_ui_context(void);          // the underlying nk context
 ```
 
 ## Example — transform inspector
@@ -43,26 +55,47 @@ void safi_debug_ui_render(SafiRenderer *r);
 ```c
 if (app.debug_ui_enabled) {
     safi_debug_ui_begin_frame(&app.renderer);
+    struct nk_context *ctx = safi_debug_ui_context();
 
-    igBegin("Inspector", NULL, 0);
-    igText("Backend: %s", safi_renderer_backend_name(&app.renderer));
-    igText("FPS: %.1f", 1.0f / it->delta_time);
-    igSeparator();
-    igDragFloat3("position", xf->position, 0.01f, -10, 10, "%.2f", 0);
-    igDragFloat4("rotation", xf->rotation, 0.01f, -1, 1,   "%.3f", 0);
-    igDragFloat3("scale",    xf->scale,    0.01f,  0.01f, 10, "%.2f", 0);
-    igEnd();
+    if (nk_begin(ctx, "Inspector",
+                 nk_rect(20, 20, 300, 260),
+                 NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
+                 NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+        char buf[64];
+        nk_layout_row_dynamic(ctx, 18, 1);
+        snprintf(buf, sizeof(buf), "Backend: %s",
+                 safi_renderer_backend_name(&app.renderer));
+        nk_label(ctx, buf, NK_TEXT_LEFT);
 
-    safi_debug_ui_render(&app.renderer);
+        nk_property_float(ctx, "pos x", -10.0f, &xf->position[0], 10.0f, 0.01f, 0.01f);
+        nk_property_float(ctx, "pos y", -10.0f, &xf->position[1], 10.0f, 0.01f, 0.01f);
+        nk_property_float(ctx, "pos z", -10.0f, &xf->position[2], 10.0f, 0.01f, 0.01f);
+    }
+    nk_end(ctx);
+
+    safi_debug_ui_prepare(&app.renderer);   // before begin_main_pass
+    safi_renderer_begin_main_pass(&app.renderer);
+    // ... engine draws ...
+    safi_debug_ui_render(&app.renderer);    // inside the pass
+    safi_renderer_end_main_pass(&app.renderer);
 }
 ```
 
-## cimgui API surface
+## Why Nuklear (not Dear ImGui)?
 
-cimgui mirrors every ImGui function under an `ig` prefix and replaces default arguments with explicit parameters. If your editor has clangd wired up, jumping into `cimgui.h` shows you everything available.
+An earlier iteration used cimgui to drive Dear ImGui. That worked but required a C++ translation unit (`cmake/cimgui_bridge.cpp`) just to `extern "C"` the ImGui SDL3+SDL_gpu backends, plus a separate `safi_cimgui` static library compiling ~8 imgui `.cpp` files. For a **pure C** engine it added too much surface area.
+
+Nuklear is:
+
+- **a single header**, no generator, no submodule, no C++
+- **pure C99**, so `safi_engine` is now 100% C with **zero** `.cpp` files compiled under its target
+- license-friendly (MIT / public domain dual-licensed)
+- dependency-free (uses its own vendored `stb_truetype` and `stb_rect_pack` for font baking)
+
+Trade-off: Nuklear has no docking / multi-viewport and a smaller widget catalogue. For a debug overlay this is fine.
 
 ## See also
 
-- [`SafiRenderer`](../render/renderer)
-- [cimgui repository](https://github.com/cimgui/cimgui)
-- [Dear ImGui demo](https://github.com/ocornut/imgui) — `igShowDemoWindow(NULL)` is available
+- [`SafiRenderer`](../render/renderer) — frame lifecycle (`begin_frame` → `begin_main_pass` → `end_main_pass` → `end_frame`)
+- [Nuklear project](https://github.com/Immediate-Mode-UI/Nuklear) — upstream docs and widget reference
+- [Nuklear overview](https://github.com/Immediate-Mode-UI/Nuklear/wiki) — layout model, styling, and examples

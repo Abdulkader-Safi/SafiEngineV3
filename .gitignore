@@ -75,7 +75,7 @@ DerivedData/
 
 # ---- SafiEngine assets downloaded at configure time ------------------------
 # cmake/Dependencies.cmake downloads this sample on first configure.
-SafiEngine/examples/gltf_viewer/assets/models/*.glb
+# SafiEngine/examples/gltf_viewer/assets/models/*.glb
 SafiEngine/examples/gltf_viewer/assets/models/*.gltf
 
 # ---- Generated shader artifacts (if any offline compilation is added) ------

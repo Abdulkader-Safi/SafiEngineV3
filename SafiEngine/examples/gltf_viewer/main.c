@@ -9,12 +9,23 @@
  *   A / D          → roll
  *   W / S          → zoom (dolly along camera forward)
  *
- * A cimgui overlay shows FPS and a transform inspector.
+ * A Nuklear overlay shows FPS and a transform inspector.
  */
 #include <safi/safi.h>
 
 #include <SDL3/SDL.h>
-#include <cimgui.h>
+
+/* Nuklear: the engine's debug_ui.c owns NK_IMPLEMENTATION; this TU only
+ * needs the struct definitions and widget functions — the same feature
+ * macros must be set for struct layout to match across translation units. */
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+#define NK_INCLUDE_STANDARD_VARARGS
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#include <nuklear.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -40,18 +51,31 @@ static void control_system(ecs_iter_t *it) {
     float dt = it->delta_time;
     float rate = 1.5f; /* rad/s */
 
-    versor delta;
-    glm_quat_identity(delta);
+    /* Apply a delta quaternion to xform->rotation in world space.
+     * IMPORTANT: cglm's glm_quat_mul does not safely alias dest with the
+     * second operand — it writes intermediate components while still reading
+     * the original, which corrupts the result. Use a local tmp and copy
+     * back. Normalize afterwards to prevent drift across many frames. */
+    #define APPLY_DELTA(angle, ax, ay, az) do {                      \
+        versor _q, _tmp;                                              \
+        glm_quatv(_q, (angle), (vec3){(ax),(ay),(az)});               \
+        glm_quat_mul(_q, xform->rotation, _tmp);                      \
+        glm_quat_copy(_tmp, xform->rotation);                         \
+    } while (0)
 
-    /* Arrows → yaw / pitch */
-    if (in->keys[SDL_SCANCODE_LEFT])  { versor q; glm_quatv(q,  rate*dt, (vec3){0,1,0}); glm_quat_mul(q, xform->rotation, xform->rotation); }
-    if (in->keys[SDL_SCANCODE_RIGHT]) { versor q; glm_quatv(q, -rate*dt, (vec3){0,1,0}); glm_quat_mul(q, xform->rotation, xform->rotation); }
-    if (in->keys[SDL_SCANCODE_UP])    { versor q; glm_quatv(q,  rate*dt, (vec3){1,0,0}); glm_quat_mul(q, xform->rotation, xform->rotation); }
-    if (in->keys[SDL_SCANCODE_DOWN])  { versor q; glm_quatv(q, -rate*dt, (vec3){1,0,0}); glm_quat_mul(q, xform->rotation, xform->rotation); }
+    /* Arrows → yaw / pitch (world-space) */
+    if (in->keys[SDL_SCANCODE_LEFT])  APPLY_DELTA( rate*dt, 0,1,0);
+    if (in->keys[SDL_SCANCODE_RIGHT]) APPLY_DELTA(-rate*dt, 0,1,0);
+    if (in->keys[SDL_SCANCODE_UP])    APPLY_DELTA( rate*dt, 1,0,0);
+    if (in->keys[SDL_SCANCODE_DOWN])  APPLY_DELTA(-rate*dt, 1,0,0);
 
     /* A / D → roll */
-    if (in->keys[SDL_SCANCODE_A]) { versor q; glm_quatv(q,  rate*dt, (vec3){0,0,1}); glm_quat_mul(q, xform->rotation, xform->rotation); }
-    if (in->keys[SDL_SCANCODE_D]) { versor q; glm_quatv(q, -rate*dt, (vec3){0,0,1}); glm_quat_mul(q, xform->rotation, xform->rotation); }
+    if (in->keys[SDL_SCANCODE_A])     APPLY_DELTA( rate*dt, 0,0,1);
+    if (in->keys[SDL_SCANCODE_D])     APPLY_DELTA(-rate*dt, 0,0,1);
+
+    #undef APPLY_DELTA
+
+    glm_quat_normalize(xform->rotation);
 
     /* W / S → dolly camera */
     SafiCamera *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
@@ -63,25 +87,68 @@ static void control_system(ecs_iter_t *it) {
     ecs_modified(it->world, g_demo.model_entity, SafiTransform);
 }
 
-/* Render system: draws the glTF model + debug UI. */
+/* Render system: draws the glTF model + Nuklear debug UI.
+ *
+ * Frame shape (SDL_gpu forbids nested passes, so the UI's vertex upload
+ * must happen BEFORE the main render pass opens):
+ *
+ *   begin_frame                    -> cmd + swapchain
+ *   debug_ui_begin_frame           -> NK ready for widget calls
+ *   <build widgets>
+ *   debug_ui_prepare               -> nk_convert + copy-pass upload
+ *   begin_main_pass                -> open color+depth pass
+ *   <draw mesh>
+ *   debug_ui_render                -> record NK draws into the pass
+ *   end_main_pass
+ *   end_frame                      -> submit
+ */
 static void render_system(ecs_iter_t *it) {
-    SafiApp *app = (SafiApp *)it->param; /* we'll pass this via ctx below */
-    (void)app;
-
-    extern SafiApp *g_app; /* set in main */
+    extern SafiApp *g_app;
     SafiApp *a = (SafiApp *)it->ctx;
     if (!a) a = g_app;
 
     SafiRenderer *r = &a->renderer;
     if (!safi_renderer_begin_frame(r)) return;
 
-    /* Begin ImGui frame before any widgets. */
-    if (a->debug_ui_enabled) safi_debug_ui_begin_frame(r);
-
-    /* Camera math. */
     SafiCamera    *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
     SafiTransform *xf  = ecs_get_mut(it->world, g_demo.model_entity,  SafiTransform);
-    if (!cam || !xf) goto end_frame;
+    if (!cam || !xf) { safi_renderer_end_frame(r); return; }
+
+    /* ---- Build Nuklear widgets (pre-pass) ------------------------------ */
+    if (a->debug_ui_enabled) {
+        safi_debug_ui_begin_frame(r);
+        struct nk_context *ctx = safi_debug_ui_context();
+        if (ctx && nk_begin(ctx, "SafiEngine",
+                            nk_rect(20, 20, 300, 260),
+                            NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
+                            NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+            char buf[64];
+
+            nk_layout_row_dynamic(ctx, 18, 1);
+            snprintf(buf, sizeof(buf), "Backend: %s", safi_renderer_backend_name(r));
+            nk_label(ctx, buf, NK_TEXT_LEFT);
+            snprintf(buf, sizeof(buf), "FPS: %.1f",
+                     1.0f / (it->delta_time > 0 ? it->delta_time : 1.0f));
+            nk_label(ctx, buf, NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Model transform", NK_TEXT_LEFT);
+
+            nk_property_float(ctx, "pos x", -10.0f, &xf->position[0], 10.0f, 0.01f, 0.01f);
+            nk_property_float(ctx, "pos y", -10.0f, &xf->position[1], 10.0f, 0.01f, 0.01f);
+            nk_property_float(ctx, "pos z", -10.0f, &xf->position[2], 10.0f, 0.01f, 0.01f);
+            nk_property_float(ctx, "scale", 0.01f, &xf->scale[0], 10.0f, 0.01f, 0.01f);
+            xf->scale[1] = xf->scale[2] = xf->scale[0];
+        }
+        if (ctx) nk_end(ctx);
+
+        safi_debug_ui_prepare(r);  /* runs its own copy pass — must be pre-pass */
+    }
+
+    /* ---- Main render pass --------------------------------------------- */
+    safi_renderer_begin_main_pass(r);
 
     mat4 view, proj, model, mvp;
     vec3 eye = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
@@ -90,6 +157,9 @@ static void render_system(ecs_iter_t *it) {
     glm_lookat(eye, center, up, view);
 
     float aspect = (float)r->swapchain_w / (float)r->swapchain_h;
+    /* cglm is built with CGLM_FORCE_DEPTH_ZERO_TO_ONE (see cmake/
+     * Dependencies.cmake) so glm_perspective emits the [0,1] clip-space Z
+     * that SDL_gpu expects on Metal / Vulkan / D3D12. */
     glm_perspective(cam->fov_y_radians, aspect, cam->z_near, cam->z_far, proj);
 
     glm_mat4_identity(model);
@@ -102,13 +172,25 @@ static void render_system(ecs_iter_t *it) {
     glm_mat4_mul(proj, view, mvp);
     glm_mat4_mul(mvp, model, mvp);
 
-    /* Draw the mesh. */
+    /* Reset viewport + scissor to the full target. Safer than assuming
+     * SDL_gpu inherited defaults; also resets anything Nuklear left behind
+     * in the previous frame's pass. */
+    SDL_GPUViewport vp = {
+        .x = 0.0f, .y = 0.0f,
+        .w = (float)r->swapchain_w, .h = (float)r->swapchain_h,
+        .min_depth = 0.0f, .max_depth = 1.0f,
+    };
+    SDL_SetGPUViewport(r->pass, &vp);
+    SDL_Rect full = { 0, 0, (int)r->swapchain_w, (int)r->swapchain_h };
+    SDL_SetGPUScissor(r->pass, &full);
+
     SDL_BindGPUGraphicsPipeline(r->pass, g_demo.material.pipeline);
     SDL_GPUBufferBinding vbind = { .buffer = g_demo.mesh.vbo, .offset = 0 };
     SDL_BindGPUVertexBuffers(r->pass, 0, &vbind, 1);
     SDL_GPUBufferBinding ibind = { .buffer = g_demo.mesh.ibo, .offset = 0 };
     SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
+    /* Vertex uniform slot 0 -> MSL [[buffer(0)]]. Keep unlit.msl in sync. */
     SDL_PushGPUVertexUniformData(r->cmd, 0, &mvp, sizeof(mvp));
 
     if (g_demo.material.base_color) {
@@ -121,22 +203,9 @@ static void render_system(ecs_iter_t *it) {
 
     SDL_DrawGPUIndexedPrimitives(r->pass, g_demo.mesh.index_count, 1, 0, 0, 0);
 
-    /* Debug UI widgets. */
-    if (a->debug_ui_enabled) {
-        igBegin("SafiEngine", NULL, 0);
-        igText("Backend: %s", safi_renderer_backend_name(r));
-        igText("FPS: %.1f", 1.0f / (it->delta_time > 0 ? it->delta_time : 1.0f));
-        igSeparator();
-        igText("Model transform");
-        igDragFloat3("position", xf->position, 0.01f, -10.0f, 10.0f, "%.2f", 0);
-        igDragFloat4("rotation", xf->rotation, 0.01f, -1.0f, 1.0f, "%.3f", 0);
-        igDragFloat3("scale",    xf->scale,    0.01f,  0.01f, 10.0f, "%.2f", 0);
-        igEnd();
+    if (a->debug_ui_enabled) safi_debug_ui_render(r);
 
-        safi_debug_ui_render(r);
-    }
-
-end_frame:
+    safi_renderer_end_main_pass(r);
     safi_renderer_end_frame(r);
 }
 
@@ -163,7 +232,7 @@ int main(int argc, char **argv) {
     /* Load the demo material + glTF model. */
     char shader_path[1024];
     char model_path[1024];
-    snprintf(shader_path, sizeof(shader_path), "%s/shaders/unlit.hlsl", SAFI_DEMO_ASSET_DIR);
+    snprintf(shader_path, sizeof(shader_path), "%s/shaders/unlit.msl", SAFI_DEMO_ASSET_DIR);
     snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
 
     if (!safi_material_create_unlit(&app.renderer, &g_demo.material, shader_path)) {

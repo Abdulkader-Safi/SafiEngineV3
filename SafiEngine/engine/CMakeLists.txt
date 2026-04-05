@@ -27,23 +27,10 @@ target_link_libraries(safi_engine
         flecs::flecs_static
         cgltf
         stb
-        safi_cimgui
+        nuklear
     PRIVATE
         safi_warnings
 )
-
-# Try to link SDL_shadercross. The target name varies by release; probe.
-if(TARGET SDL3_shadercross::SDL3_shadercross-static)
-    target_link_libraries(safi_engine PUBLIC SDL3_shadercross::SDL3_shadercross-static)
-elseif(TARGET SDL3_shadercross-static)
-    target_link_libraries(safi_engine PUBLIC SDL3_shadercross-static)
-elseif(TARGET SDL3_shadercross::SDL3_shadercross)
-    target_link_libraries(safi_engine PUBLIC SDL3_shadercross::SDL3_shadercross)
-elseif(TARGET SDL3_shadercross)
-    target_link_libraries(safi_engine PUBLIC SDL3_shadercross)
-else()
-    message(FATAL_ERROR "SDL_shadercross target not found")
-endif()
 
 set_target_properties(safi_engine PROPERTIES
     C_STANDARD 11

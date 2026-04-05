@@ -35,12 +35,12 @@ bool safi_material_create_unlit(SafiRenderer *r,
         return false;
     }
 
-    SDL_GPUShader *vs = safi_shader_compile_hlsl(r, src, src_len, "vs_main",
-                                                 SAFI_SHADER_STAGE_VERTEX,
-                                                 0, 1, 0, 0);
-    SDL_GPUShader *fs = safi_shader_compile_hlsl(r, src, src_len, "fs_main",
-                                                 SAFI_SHADER_STAGE_FRAGMENT,
-                                                 1, 0, 0, 0);
+    SDL_GPUShader *vs = safi_shader_create(r, src, src_len, "vs_main",
+                                           SAFI_SHADER_STAGE_VERTEX,
+                                           0, 1, 0, 0);
+    SDL_GPUShader *fs = safi_shader_create(r, src, src_len, "fs_main",
+                                           SAFI_SHADER_STAGE_FRAGMENT,
+                                           1, 0, 0, 0);
     free(src);
     if (!vs || !fs) return false;
 
@@ -81,7 +81,9 @@ bool safi_material_create_unlit(SafiRenderer *r,
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
             .fill_mode  = SDL_GPU_FILLMODE_FILL,
-            .cull_mode  = SDL_GPU_CULLMODE_BACK,
+            /* Keep culling off in the first-milestone unlit material so
+             * arbitrary glTF models render regardless of their winding. */
+            .cull_mode  = SDL_GPU_CULLMODE_NONE,
             .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
         },
         .multisample_state = { .sample_count = SDL_GPU_SAMPLECOUNT_1 },
@@ -115,7 +117,15 @@ bool safi_material_create_unlit(SafiRenderer *r,
         .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
     };
     out->sampler = SDL_CreateGPUSampler(r->device, &si);
-    return out->sampler != NULL;
+    if (!out->sampler) return false;
+
+    /* Install a 1×1 opaque-white base color so the fragment shader always
+     * has a valid sampler binding even when the glTF has no texture or its
+     * upload fails. Without this, unbound samplers read as zero and the
+     * whole mesh renders as transparent/black against the clear color. */
+    static const uint8_t white_rgba[4] = { 255, 255, 255, 255 };
+    safi_material_set_base_color_rgba8(r, out, white_rgba, 1, 1);
+    return true;
 }
 
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m) {

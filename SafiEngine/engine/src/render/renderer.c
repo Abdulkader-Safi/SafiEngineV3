@@ -40,9 +40,15 @@ bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc) {
         return false;
     }
 
+    /* NOTE: SDL_WINDOW_HIGH_PIXEL_DENSITY is intentionally OFF so the
+     * swapchain size in pixels equals the window size in points. That lets
+     * Nuklear (which works in window points, same as SDL mouse events) feed
+     * its vertex coordinates and clip rects directly to the GPU without a
+     * DPI scale. Re-enable once we add a proper DPI scale factor to both
+     * the Nuklear backend's shader uniform and its scissor conversion. */
     r->window = SDL_CreateWindow(desc->title,
                                  desc->width, desc->height,
-                                 SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                                 SDL_WINDOW_RESIZABLE);
     if (!r->window) {
         SAFI_LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
         return false;
@@ -120,6 +126,14 @@ bool safi_renderer_begin_frame(SafiRenderer *r) {
         s_create_depth(r, r->swapchain_w, r->swapchain_h);
     }
 
+    r->pass = NULL;
+    r->frame_active = true;
+    return true;
+}
+
+void safi_renderer_begin_main_pass(SafiRenderer *r) {
+    if (!r->frame_active || r->pass) return;
+
     SDL_GPUColorTargetInfo color_target = {
         .texture     = r->swapchain_tex,
         .clear_color = (SDL_FColor){ 0.07f, 0.08f, 0.10f, 1.0f },
@@ -135,15 +149,21 @@ bool safi_renderer_begin_frame(SafiRenderer *r) {
         .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE,
     };
     r->pass = SDL_BeginGPURenderPass(r->cmd, &color_target, 1, &depth_target);
-    r->frame_active = true;
-    return true;
+}
+
+void safi_renderer_end_main_pass(SafiRenderer *r) {
+    if (!r->pass) return;
+    SDL_EndGPURenderPass(r->pass);
+    r->pass = NULL;
 }
 
 void safi_renderer_end_frame(SafiRenderer *r) {
     if (!r->frame_active) return;
-    SDL_EndGPURenderPass(r->pass);
+    if (r->pass) {
+        SDL_EndGPURenderPass(r->pass);
+        r->pass = NULL;
+    }
     SDL_SubmitGPUCommandBuffer(r->cmd);
-    r->pass = NULL;
     r->cmd = NULL;
     r->swapchain_tex = NULL;
     r->frame_active = false;

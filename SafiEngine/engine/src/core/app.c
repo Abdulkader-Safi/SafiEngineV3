@@ -66,7 +66,7 @@ bool safi_app_tick(SafiApp *app) {
         .elapsed     = app->elapsed,
         .frame_count = app->frame_count,
     };
-    ecs_singleton_set_ptr(app->world, ecs_id(SafiTime), &t);
+    ecs_singleton_set_ptr(app->world, SafiTime, &t);
 
     /* Input → ECS */
     safi_input_pump(app->world);

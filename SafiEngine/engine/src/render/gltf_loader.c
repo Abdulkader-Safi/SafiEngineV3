@@ -5,21 +5,12 @@
 #include <cgltf.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_STDIO 0
 #include <stb_image.h>
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-
-static const float *s_read_vec(const cgltf_accessor *acc, size_t *out_count) {
-    if (!acc) return NULL;
-    if (out_count) *out_count = acc->count;
-    const cgltf_buffer_view *bv = acc->buffer_view;
-    const uint8_t *base = (const uint8_t *)bv->buffer->data + bv->offset + acc->offset;
-    return (const float *)base;
-}
 
 bool safi_gltf_load(SafiRenderer *r,
                     const char   *path,
@@ -96,6 +87,8 @@ bool safi_gltf_load(SafiRenderer *r,
 
     bool ok = safi_mesh_create(r, out_mesh, verts, (uint32_t)vcount,
                                indices, (uint32_t)icount);
+    SAFI_LOG_INFO("glTF '%s': %zu verts, %zu indices, mesh_ok=%d",
+                  path, vcount, icount, (int)ok);
     free(verts);
     free(indices);
 
@@ -112,7 +105,10 @@ bool safi_gltf_load(SafiRenderer *r,
             if (pixels) {
                 safi_material_set_base_color_rgba8(r, inout_material, pixels,
                                                    (uint32_t)w, (uint32_t)h);
+                SAFI_LOG_INFO("glTF base-color texture: %dx%d (embedded)", w, h);
                 stbi_image_free(pixels);
+            } else {
+                SAFI_LOG_WARN("glTF base-color decode failed: %s", stbi_failure_reason());
             }
         } else if (tex && tex->image && tex->image->uri) {
             int w, h, n;

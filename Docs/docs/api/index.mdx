@@ -6,7 +6,7 @@ overview: true
 
 # SafiEngine API
 
-SafiEngine is a pure-C game engine built on SDL3 (with the SDL_gpu API), flecs for ECS, cglm for math, Dear ImGui (via cimgui) for debug UI, and cgltf for model loading. Every subsystem below ships as part of the engine and is available by including `<safi/safi.h>` (umbrella header) or individual `<safi/…/…>` headers.
+SafiEngine is a pure-C game engine built on SDL3 (with the SDL_gpu API), flecs for ECS, cglm for math, Nuklear for the debug overlay, and cgltf for model loading. Every subsystem below ships as part of the engine and is available by including `<safi/safi.h>` (umbrella header) or individual `<safi/…/…>` headers.
 
 :::tip Zero setup
 All dependencies are pulled in by CMake `FetchContent`. You only need CMake and a C/C++ compiler — no manual `brew install`, no submodules, no shader toolchains.
@@ -20,7 +20,7 @@ All dependencies are pulled in by CMake `FetchContent`. You only need CMake and 
 | [ECS](./ecs/overview)       | `<safi/ecs/…>`    | flecs world, stock components, systems             |
 | [Render](./render/overview) | `<safi/render/…>` | SDL_gpu renderer, meshes, materials, shaders, glTF |
 | [Input](./input/input)      | `<safi/input/…>`  | Keyboard/mouse snapshot singleton                  |
-| [UI](./ui/debug_ui)         | `<safi/ui/…>`     | Dear ImGui integration                             |
+| [UI](./ui/debug_ui)         | `<safi/ui/…>`     | Nuklear debug overlay                              |
 
 ## Quickstart
 

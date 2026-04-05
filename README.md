@@ -4,7 +4,7 @@ A pure-C game engine and its documentation site, kept in one monorepo.
 
 ```
 SafiEngineV3/
-├── SafiEngine/   # the engine — C11, CMake, SDL3 GPU, flecs, cimgui
+├── SafiEngine/   # the engine — C11, CMake, SDL3 GPU, flecs, Nuklear
 └── Docs/         # the documentation site — rspress + MDX
 ```
 
@@ -12,17 +12,16 @@ SafiEngineV3/
 
 SafiEngine is a **pure-C** game engine with **zero manual dependency setup**. All you need is CMake and a C/C++ compiler — everything else is pulled in by `FetchContent` on the first configure.
 
-| Concern        | Library                                                                                                  |
-| -------------- | -------------------------------------------------------------------------------------------------------- |
-| Window + input | [SDL3](https://github.com/libsdl-org/SDL)                                                                |
-| GPU            | SDL_gpu (Metal / Vulkan / D3D12)                                                                         |
-| Shaders        | [SDL_shadercross](https://github.com/libsdl-org/SDL_shadercross) — HLSL → SPIR-V / MSL / DXIL at runtime |
-| ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                  |
-| Math           | [cglm](https://github.com/recp/cglm)                                                                     |
-| glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)               |
-| Debug UI       | [Dear ImGui](https://github.com/ocornut/imgui) via [cimgui](https://github.com/cimgui/cimgui)            |
+| Concern        | Library                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| Window + input | [SDL3](https://github.com/libsdl-org/SDL)                                                               |
+| GPU            | SDL_gpu — first milestone targets Metal on macOS; shaders written in MSL                                |
+| ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                 |
+| Math           | [cglm](https://github.com/recp/cglm)                                                                    |
+| glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)              |
+| Debug UI       | [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) — single-header, pure C, custom SDL_gpu backend |
 
-The first milestone is a glTF viewer that loads `BoxTextured.glb` and lets you rotate it with the arrow keys and WASD while a cimgui overlay shows an inspector.
+The first milestone is a glTF viewer that loads `BoxTextured.glb` and lets you rotate it with the arrow keys and WASD while a Nuklear overlay shows a live transform inspector.
 
 ## Build the engine
 
@@ -59,7 +58,7 @@ The full API reference lives under `Docs/docs/api/` as one MDX page per public h
 
 `SafiEngine/cmake/ClangdSetup.cmake` emits `compile_commands.json` and symlinks it into `SafiEngine/` after each configure. Any clangd-aware editor — **Zed**, VS Code, Neovim, CLion — picks it up automatically with no per-editor configuration.
 
-A `SafiEngine/.clangd` file tells clangd to treat engine headers as C11 and the single cimgui bridge (`cmake/cimgui_bridge.cpp`) as C++17, so you get clean diagnostics on both.
+A `SafiEngine/.clangd` file tells clangd the project is C11. The engine library is 100% C — there are no C++ translation units to configure.
 
 ## Repository layout
 
@@ -67,7 +66,7 @@ A `SafiEngine/.clangd` file tells clangd to treat engine headers as C11 and the 
 SafiEngineV3/
 ├── SafiEngine/
 │   ├── CMakeLists.txt
-│   ├── cmake/                       # Dependencies, clangd setup, cimgui C++ bridge
+│   ├── cmake/                       # Dependencies (FetchContent) + clangd setup
 │   ├── engine/
 │   │   ├── include/safi/            # public C headers (core, ecs, render, input, ui)
 │   │   └── src/                     # implementation

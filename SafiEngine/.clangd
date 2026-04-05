@@ -1,5 +1,5 @@
 # SafiEngine clangd config.
-# The engine is C11; the only C++ translation unit is the cimgui bridge.
+# The engine is pure C11 — no C++ translation units.
 
 CompileFlags:
   Add: [-std=c11, -Wall, -Wextra, -Wpedantic]
@@ -10,10 +10,3 @@ If:
   PathMatch: .*\.h$
 CompileFlags:
   Add: [-xc]
-
----
-If:
-  PathMatch: .*\.(cpp|cc|cxx)$
-CompileFlags:
-  Remove: [-std=c11]
-  Add: [-std=c++17, -xc++]

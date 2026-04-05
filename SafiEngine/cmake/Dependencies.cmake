@@ -23,20 +23,14 @@ FetchContent_Declare(SDL3
 FetchContent_MakeAvailable(SDL3)
 
 # ---------------------------------------------------------------------------
-# SDL_shadercross — HLSL → SPIR-V/MSL/DXIL at runtime (no offline toolchain)
+# NOTE: SDL_shadercross has been dropped for the first milestone.
+# Its vendored DirectXShaderCompiler (DXC/LLVM) fails to build on modern
+# Apple libc++ (specializes std::is_nothrow_constructible). For now the
+# engine ships MSL and loads it directly via SDL_CreateGPUShader — Metal
+# only. Cross-platform shaders are a planned follow-up once either
+#   (a) a newer SDL_shadercross release fixes the DXC build on macOS, or
+#   (b) we offline-compile HLSL/GLSL → SPIR-V with glslang at build time.
 # ---------------------------------------------------------------------------
-set(SDLSHADERCROSS_SHARED OFF CACHE BOOL "" FORCE)
-set(SDLSHADERCROSS_STATIC ON  CACHE BOOL "" FORCE)
-set(SDLSHADERCROSS_CLI    OFF CACHE BOOL "" FORCE)
-set(SDLSHADERCROSS_VENDORED ON CACHE BOOL "" FORCE)
-set(SDLSHADERCROSS_INSTALL OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(SDL_shadercross
-    GIT_REPOSITORY https://github.com/libsdl-org/SDL_shadercross.git
-    GIT_TAG        main
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(SDL_shadercross)
 
 # ---------------------------------------------------------------------------
 # cglm — C SIMD math (vec/mat/quat)
@@ -51,6 +45,11 @@ FetchContent_Declare(cglm
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(cglm)
+
+# SDL_gpu uses zero-to-one clip-space depth on every backend (Metal, Vulkan,
+# D3D12). Force cglm to match — otherwise glm_perspective emits OpenGL-style
+# [-1,1] depth and the near half of the scene gets silently clipped.
+target_compile_definitions(cglm INTERFACE CGLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 # ---------------------------------------------------------------------------
 # flecs — Bevy-like ECS in pure C
@@ -94,46 +93,19 @@ add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
-# cimgui — official C bindings for Dear ImGui (bundles imgui via submodule)
-# Built together with the SDL3 + SDL_gpu backends into one static lib.
+# Nuklear — single-header, pure C immediate-mode UI.
+# We only need nuklear.h; the rest of the repo is example renderers. The
+# engine provides its own SDL_gpu backend in engine/src/ui/debug_ui.c.
 # ---------------------------------------------------------------------------
-FetchContent_Declare(cimgui
-    GIT_REPOSITORY https://github.com/cimgui/cimgui.git
-    GIT_TAG        docking_inter
+FetchContent_Declare(nuklear
+    GIT_REPOSITORY https://github.com/Immediate-Mode-UI/Nuklear.git
+    GIT_TAG        master
     GIT_SHALLOW    TRUE
-    GIT_SUBMODULES_RECURSE TRUE
 )
-FetchContent_MakeAvailable(cimgui)
+FetchContent_MakeAvailable(nuklear)
 
-set(CIMGUI_DIR ${cimgui_SOURCE_DIR})
-set(IMGUI_DIR  ${cimgui_SOURCE_DIR}/imgui)
-
-add_library(safi_cimgui STATIC
-    ${CIMGUI_DIR}/cimgui.cpp
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_demo.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/cimgui_bridge.cpp
-)
-target_include_directories(safi_cimgui
-    PUBLIC
-        ${CIMGUI_DIR}
-        ${IMGUI_DIR}
-        ${IMGUI_DIR}/backends
-)
-target_compile_definitions(safi_cimgui
-    PUBLIC
-        IMGUI_DEFINE_MATH_OPERATORS
-        IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-        # Tell cimgui to export C symbols with default visibility.
-        IMGUI_IMPL_API=extern\ \"C\"
-)
-target_link_libraries(safi_cimgui PUBLIC SDL3::SDL3-static)
-set_target_properties(safi_cimgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(nuklear INTERFACE)
+target_include_directories(nuklear INTERFACE ${nuklear_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
 # Sample glTF asset — fetched at configure time so the demo runs offline.

@@ -26,19 +26,21 @@ safi_renderer_end_frame(r)
 
 Only one render pass per frame in the first-pass engine. Adding more passes (shadow maps, post-processing) is a future evolution.
 
-## Shaders: one source, every backend
+## Shaders: MSL today, cross-platform later
 
-Shaders are authored in **HLSL** and compiled at runtime by [SDL_shadercross](./shader). Shadercross produces SPIR-V, then re-targets it to Metal MSL or D3D12 DXIL depending on the backend SDL picked at startup. You never ship a platform-specific shader — and you don't need `glslangValidator` or `dxc` installed on the user's machine.
+First milestone shaders are authored in **MSL (Metal Shading Language)** and passed straight to `SDL_CreateGPUShader` via [`safi_shader_create`](./shader). This gets the engine up and running on the Metal backend with zero extra toolchain setup.
+
+Cross-platform shader compilation (one source → SPIR-V for Vulkan and DXIL for D3D12) is a planned follow-up once either (a) a newer SDL_shadercross release fixes its vendored DirectXShaderCompiler build on modern Apple libc++, or (b) we offline-compile HLSL/GLSL → SPIR-V via glslang at build time.
 
 ## Coordinate conventions
 
-| Axis   | Meaning       |
-| ------ | ------------- |
-| `+X`   | right         |
-| `+Y`   | up            |
-| `-Z`   | forward       |
-| Wind.  | counter-clockwise = front (SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE) |
-| Depth  | `SDL_GPU_COMPAREOP_LESS`, `clear = 1.0` |
+| Axis  | Meaning                                                         |
+| ----- | --------------------------------------------------------------- |
+| `+X`  | right                                                           |
+| `+Y`  | up                                                              |
+| `-Z`  | forward                                                         |
+| Wind. | counter-clockwise = front (SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE) |
+| Depth | `SDL_GPU_COMPAREOP_LESS`, `clear = 1.0`                         |
 
 These match cglm's `glm_lookat` / `glm_perspective` defaults, so you can hand camera matrices straight to the shader without sign flips.
 
