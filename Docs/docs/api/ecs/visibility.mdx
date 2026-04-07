@@ -1,0 +1,31 @@
+---
+title: Visibility System
+description: Visibility flags, frustum culling, and render layers — not yet implemented.
+---
+
+# Visibility System
+
+:::warning WIP — Not yet implemented
+This subsystem is planned but does not exist in the engine yet. Everything is assumed visible if the demo chooses to draw it.
+:::
+
+## Planned features
+
+### Visibility component
+
+A `Visibility` flag component that controls whether an entity is drawn. Combined with inherited visibility, toggling a parent off would hide all children.
+
+### Frustum culling
+
+`SafiMesh` already stores an AABB (`aabb_min` / `aabb_max`) in the mesh header. A frustum culling system would test each entity's world-space AABB against the active camera's frustum and skip draw calls for off-screen geometry.
+
+### Render layers / masks
+
+A bitmask on both cameras and renderable entities, allowing selective rendering — e.g. a minimap camera that only sees terrain, or a UI camera that only sees HUD elements.
+
+## See also
+
+- [Camera](./camera)
+- [Transform](./transform)
+- [`SafiMesh`](../render/mesh) — stores AABB
+- [Render Overview](../render/overview)

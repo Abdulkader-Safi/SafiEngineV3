@@ -25,6 +25,10 @@ static inline SafiTransform safi_transform_identity(void);
 
 Use `safi_transform_identity()` for a sensible default (zero position, unit quaternion, unit scale).
 
+:::warning WIP — Transform system
+`SafiTransform` stores local position/rotation/scale but there is no engine transform system yet. `GlobalTransform` does not exist, hierarchy propagation is not implemented, and change tracking is absent. World-space matrices are built manually in user code. See [Transform System](./transform).
+:::
+
 ## `SafiCamera`
 
 ```c
@@ -38,6 +42,10 @@ typedef struct SafiCamera {
 } SafiCamera;
 ```
 
+:::warning WIP — Camera system
+`SafiCamera` exists as a component but projection is computed in the demo, not by the engine. Orthographic projection is not supported. There is no camera priority, viewport, or multi-camera system. See [Camera System](./camera).
+:::
+
 ## `SafiMeshRenderer`
 
 ```c
@@ -48,6 +56,10 @@ typedef struct SafiMeshRenderer {
 ```
 
 The render system queries `(SafiTransform, SafiMeshRenderer)` and issues one draw call per matching entity.
+
+:::warning WIP — Asset handles
+`SafiMeshRenderer` stores raw `SafiMesh*` / `SafiMaterial*` pointers. A proper asset handle system with caching, deduplication, and lifetime management is not yet implemented. See [Asset System](../render/assets).
+:::
 
 ## `SafiName`
 

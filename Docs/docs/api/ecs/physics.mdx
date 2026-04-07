@@ -1,0 +1,37 @@
+---
+title: Physics & Collision
+description: Colliders, raycasts, overlap checks, and rigid bodies — not yet implemented.
+---
+
+# Physics & Collision
+
+:::warning WIP — Not yet implemented
+No physics or collision subsystem exists in the engine. This page describes planned features.
+:::
+
+## Planned features
+
+### Collider components
+
+Primitive collider types (box, sphere, capsule) that attach to entities alongside `SafiTransform`. These define the collision shape for overlap and raycast queries.
+
+### Raycasts
+
+A query API to cast a ray into the world and return the first (or all) intersected collider entities, with hit position and normal.
+
+### Overlap checks
+
+Point-in-shape and shape-vs-shape overlap queries for trigger zones, area-of-effect, and proximity detection.
+
+### Kinematic bodies
+
+A basic character-controller or kinematic body that moves through the world, slides along surfaces, and responds to colliders without full rigid-body simulation.
+
+### Rigid bodies
+
+Optional dynamic rigid-body simulation for physics-driven objects (crates, projectiles, ragdolls). Likely backed by an external physics library integrated through the ECS.
+
+## See also
+
+- [Transform](./transform)
+- [ECS Overview](./overview)

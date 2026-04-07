@@ -37,6 +37,16 @@ EcsOnStore    → rendering system (reads state, draws)
 
 You can also use `EcsPreUpdate`, `EcsPostUpdate`, and `EcsPreStore` — see the [flecs quickstart](https://www.flecs.dev/flecs/md_docs_2Quickstart.html).
 
+:::warning WIP — Scheduling gaps
+The flecs pipeline phases are available, but the engine does not yet provide:
+- **Startup stage** — no one-shot startup system registration API
+- **Fixed update stage** — no fixed-timestep accumulator or `FixedUpdate` schedule
+- **Engine-owned render stage** — the render system currently lives in the demo, not the engine
+- **System ordering API** — only raw flecs `ecs_dependson` phase ordering; no explicit before/after dependencies
+
+See [Scheduler & Stages](../core/scheduler).
+:::
+
 ## Minimal example
 
 ```c

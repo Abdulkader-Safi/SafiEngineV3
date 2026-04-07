@@ -21,6 +21,10 @@ typedef struct SafiTime {
 } SafiTime;
 ```
 
+:::warning WIP — Fixed timestep
+`SafiTime` currently tracks only variable-rate delta time. A fixed-timestep accumulator (`fixed_delta`, `fixed_elapsed`, `fixed_overshoot`) and a `FixedUpdate` schedule do not exist yet. All physics or deterministic logic must use the variable `delta` for now. See [Scheduler & Stages](./scheduler).
+:::
+
 ## Example
 
 ```c

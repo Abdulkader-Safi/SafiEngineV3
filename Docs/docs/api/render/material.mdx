@@ -11,6 +11,17 @@ description: Graphics pipeline + sampler + base-color texture.
 
 The first-pass engine ships a single material type: **unlit textured**. It owns a `SDL_GPUGraphicsPipeline`, a `SDL_GPUSampler`, and (optionally) a base-color `SDL_GPUTexture`.
 
+:::warning WIP — Material system
+Only the unlit textured material exists. The following are not yet implemented:
+- **PBR / lit materials** — no metallic-roughness or normal-map pipeline
+- **Alpha modes** — no opaque/mask/blend handling (`enable_blend = false`)
+- **Material parameters** — no generalized uniform/parameter block; only base-color texture
+- **Double-sided flag** — culling is globally disabled rather than per-material
+- **Texture abstraction** — textures are raw `SDL_GPUTexture*` inside the material, not standalone assets
+
+See [Lighting](./lighting) and [Asset System](./assets).
+:::
+
 ## Types
 
 ```c

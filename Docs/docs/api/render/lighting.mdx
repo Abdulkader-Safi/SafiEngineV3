@@ -1,0 +1,37 @@
+---
+title: Lighting
+description: Directional, point, and ambient lights — not yet implemented.
+---
+
+# Lighting
+
+:::warning WIP — Not yet implemented
+The engine currently has only an unlit rendering path (`unlit.hlsl`). No light components, uniform buffers, or lit shading pipelines exist yet.
+:::
+
+## Planned features
+
+### Directional light
+
+A `SafiDirectionalLight` component with direction, color, and intensity. One or more directional lights would be gathered per frame and sent to the shader as a uniform buffer.
+
+### Point light
+
+A `SafiPointLight` component with position, color, intensity, and attenuation range. The engine would support multiple point lights per scene with a light-count uniform.
+
+### Ambient light
+
+A singleton resource (`SafiAmbientLight`) providing a base illumination color so objects are never fully black in shadow.
+
+### Lit shading path
+
+A PBR or Blinn-Phong shader that reads light uniforms and computes diffuse + specular contributions. This requires:
+- A per-frame light buffer uploaded alongside the camera buffer
+- Normal-mapped geometry (vertex normals already exist in `SafiVertex`)
+- A new `safi_material_create_lit` pipeline alongside the existing unlit path
+
+## See also
+
+- [Material](./material)
+- [Shader](./shader)
+- [Render Overview](./overview)

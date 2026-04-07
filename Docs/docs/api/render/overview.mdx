@@ -26,6 +26,15 @@ safi_renderer_end_frame(r)
 
 Only one render pass per frame in the first-pass engine. Adding more passes (shadow maps, post-processing) is a future evolution.
 
+:::warning WIP — Render architecture
+The current renderer executes a single render pass per frame. The following are planned but not yet implemented:
+- **Render extraction** — gameplay ECS state is read directly at draw time; no extracted render-world exists
+- **Draw queue / sorting** — draw calls are issued inline, not batched or sorted
+- **Transparent pass** — no separate pass for transparent/alpha-blended geometry
+- **Pipeline cache** — each material creates and owns one pipeline directly; no reuse strategy
+- **Engine-owned render system** — rendering logic currently lives in the demo, not the engine
+:::
+
 ## Shaders: HLSL → SPIR-V + MSL
 
 Shaders are authored once in **HLSL** and compiled at build time into **SPIR-V** (for Vulkan) and **MSL** (for Metal) via glslangValidator + spirv-cross. At runtime, [`safi_shader_load`](./shader) inspects `SDL_GetGPUShaderFormats()` and picks the matching artifact — callers only pass a logical shader name like `"unlit"`.

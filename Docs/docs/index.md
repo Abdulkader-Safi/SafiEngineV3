@@ -10,6 +10,9 @@ hero:
       text: API Reference
       link: /api/
     - theme: alt
+      text: Roadmap
+      link: /roadmap/
+    - theme: alt
       text: GitHub
       link: https://github.com/safi/SafiEngine
   image:

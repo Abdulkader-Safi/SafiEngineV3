@@ -1,0 +1,54 @@
+---
+title: Camera System
+description: Camera component, perspective and orthographic projection, view computation.
+---
+
+# Camera System
+
+```c
+#include <safi/ecs/components.h>
+```
+
+`SafiCamera` is an ECS component that describes a viewpoint. Attach it to an entity alongside `SafiTransform` to define where the player (or editor) looks from.
+
+## Type
+
+```c
+typedef struct SafiCamera {
+    float fov_y_radians;
+    float z_near;
+    float z_far;
+    vec3  target;
+    mat4  view;   // recomputed per frame by the render system
+    mat4  proj;
+} SafiCamera;
+```
+
+## Current usage
+
+The glTF viewer demo creates one camera entity and manually computes perspective projection via `glm_perspective`. The view matrix is rebuilt each frame from `SafiTransform.position` and `SafiCamera.target` using `glm_lookat`.
+
+```c
+ecs_entity_t cam = ecs_new(world);
+ecs_set(world, cam, SafiTransform, safi_transform_identity());
+ecs_set(world, cam, SafiCamera, {
+    .fov_y_radians = glm_rad(60.0f),
+    .z_near = 0.1f,
+    .z_far  = 100.0f,
+    .target = {0, 0, 0},
+});
+```
+
+:::warning WIP — Camera system
+The camera is functional but not engine-owned:
+- **Perspective projection** is computed in the demo, not by an engine system
+- **Orthographic projection** does not exist (`glm_ortho` is not used anywhere)
+- **Multi-camera** — no camera priority, viewport rect, or render-target selection
+- **Active camera** — no engine concept of which camera drives the main pass
+:::
+
+## See also
+
+- [Stock components](./components)
+- [Transform](./transform)
+- [Render Overview](../render/overview)
