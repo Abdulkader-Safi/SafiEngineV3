@@ -7,124 +7,136 @@ description: Current implementation status of every SafiEngine subsystem.
 
 Status of every engine subsystem as of the latest audit (April 2026).
 
-| Badge | Meaning |
-|-------|---------|
-| **Implemented** | Fully working in the engine |
-| **Partial** | Struct or logic exists but incomplete |
-| **WIP** | Planned, not yet started |
+| Badge           | Meaning                               |
+| --------------- | ------------------------------------- |
+| **Implemented** | Fully working in the engine           |
+| **Partial**     | Struct or logic exists but incomplete |
+| **WIP**         | Planned, not yet started              |
 
 ---
 
 ## ECS & Core
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| Entities | **Implemented** | [ECS Overview](/api/ecs/overview) |
-| Components | **Implemented** | [Stock Components](/api/ecs/components) |
-| Queries | **Implemented** | [Systems](/api/ecs/systems) |
-| Resources / Singletons | **Implemented** | [Resources](/api/ecs/resources) |
-| Add/remove at runtime | **Implemented** | [ECS Overview](/api/ecs/overview) |
-| Parent/child hierarchy | **Partial** | [ECS Overview](/api/ecs/overview) |
-| Startup stage | **WIP** | [Scheduler](/api/core/scheduler) |
-| Fixed update stage | **WIP** | [Scheduler](/api/core/scheduler) |
-| Engine-owned render stage | **WIP** | [Scheduler](/api/core/scheduler) |
-| System ordering API | **Partial** | [Scheduler](/api/core/scheduler) |
+| Feature                   | Status          | API Page                                |
+| ------------------------- | --------------- | --------------------------------------- |
+| Entities                  | **Implemented** | [ECS Overview](/api/ecs/overview)       |
+| Components                | **Implemented** | [Stock Components](/api/ecs/components) |
+| Queries                   | **Implemented** | [Systems](/api/ecs/systems)             |
+| Resources / Singletons    | **Implemented** | [Resources](/api/ecs/resources)         |
+| Add/remove at runtime     | **Implemented** | [ECS Overview](/api/ecs/overview)       |
+| Parent/child hierarchy    | **Partial**     | [ECS Overview](/api/ecs/overview)       |
+| Startup stage             | **WIP**         | [Scheduler](/api/core/scheduler)        |
+| Fixed update stage        | **WIP**         | [Scheduler](/api/core/scheduler)        |
+| Engine-owned render stage | **WIP**         | [Scheduler](/api/core/scheduler)        |
+| System ordering API       | **Partial**     | [Scheduler](/api/core/scheduler)        |
 
 ## Transform & Spatial
 
-| Feature | Status | API Page |
-|---------|--------|----------|
+| Feature                           | Status      | API Page                        |
+| --------------------------------- | ----------- | ------------------------------- |
 | Local transform (`SafiTransform`) | **Partial** | [Transform](/api/ecs/transform) |
-| Global / world transform | **WIP** | [Transform](/api/ecs/transform) |
-| Hierarchy propagation | **WIP** | [Transform](/api/ecs/transform) |
-| Change tracking / dirty flags | **WIP** | [Transform](/api/ecs/transform) |
+| Global / world transform          | **WIP**     | [Transform](/api/ecs/transform) |
+| Hierarchy propagation             | **WIP**     | [Transform](/api/ecs/transform) |
+| Change tracking / dirty flags     | **WIP**     | [Transform](/api/ecs/transform) |
 
 ## Camera & Visibility
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| Camera component | **Implemented** | [Camera](/api/ecs/camera) |
-| Perspective projection | **Partial** | [Camera](/api/ecs/camera) |
-| Orthographic projection | **WIP** | [Camera](/api/ecs/camera) |
-| Active camera system | **WIP** | [Camera](/api/ecs/camera) |
-| Visibility flags | **WIP** | [Visibility](/api/ecs/visibility) |
-| Frustum culling | **WIP** | [Visibility](/api/ecs/visibility) |
-| Render layers / masks | **WIP** | [Visibility](/api/ecs/visibility) |
+| Feature                 | Status          | API Page                          |
+| ----------------------- | --------------- | --------------------------------- |
+| Camera component        | **Implemented** | [Camera](/api/ecs/camera)         |
+| Perspective projection  | **Partial**     | [Camera](/api/ecs/camera)         |
+| Orthographic projection | **WIP**         | [Camera](/api/ecs/camera)         |
+| Active camera system    | **WIP**         | [Camera](/api/ecs/camera)         |
+| Visibility flags        | **WIP**         | [Visibility](/api/ecs/visibility) |
+| Frustum culling         | **WIP**         | [Visibility](/api/ecs/visibility) |
+| Render layers / masks   | **WIP**         | [Visibility](/api/ecs/visibility) |
 
 ## Rendering
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| SDL_gpu renderer | **Implemented** | [Renderer](/api/render/renderer) |
-| Mesh upload & destruction | **Implemented** | [Mesh](/api/render/mesh) |
-| Depth testing | **Implemented** | [Material](/api/render/material) |
-| Draw pass execution | **Implemented** | [Render Overview](/api/render/overview) |
-| Unlit material | **Implemented** | [Material](/api/render/material) |
-| Shader loading (HLSL -> SPIR-V + MSL) | **Implemented** | [Shader](/api/render/shader) |
-| glTF loader | **Partial** | [glTF Loader](/api/render/gltf_loader) |
-| Material parameters | **Partial** | [Material](/api/render/material) |
-| Shader/material abstraction | **Partial** | [Material](/api/render/material) |
-| Culling (back-face) | **Partial** | [Material](/api/render/material) |
-| Opaque pass | **Partial** | [Render Overview](/api/render/overview) |
-| PBR / lit material | **WIP** | [Material](/api/render/material) |
-| Alpha modes / blending | **WIP** | [Material](/api/render/material) |
-| Double-sided flag | **WIP** | [Material](/api/render/material) |
-| Render extraction | **WIP** | [Render Overview](/api/render/overview) |
-| Draw queue / sorting | **WIP** | [Render Overview](/api/render/overview) |
-| Transparent pass | **WIP** | [Render Overview](/api/render/overview) |
-| Pipeline cache | **WIP** | [Render Overview](/api/render/overview) |
+| Feature                               | Status          | API Page                                |
+| ------------------------------------- | --------------- | --------------------------------------- |
+| SDL_gpu renderer                      | **Implemented** | [Renderer](/api/render/renderer)        |
+| Mesh upload & destruction             | **Implemented** | [Mesh](/api/render/mesh)                |
+| Depth testing                         | **Implemented** | [Material](/api/render/material)        |
+| Draw pass execution                   | **Implemented** | [Render Overview](/api/render/overview) |
+| Unlit material                        | **Implemented** | [Material](/api/render/material)        |
+| Shader loading (HLSL -> SPIR-V + MSL) | **Implemented** | [Shader](/api/render/shader)            |
+| glTF loader (single primitive)        | **Implemented** | [glTF Loader](/api/render/gltf_loader)  |
+| Multi-material glTF (`SafiModel`)     | **Implemented** | [glTF Loader](/api/render/gltf_loader)  |
+| Material parameters                   | **Partial**     | [Material](/api/render/material)        |
+| Shader/material abstraction           | **Partial**     | [Material](/api/render/material)        |
+| Culling (back-face)                   | **Partial**     | [Material](/api/render/material)        |
+| Opaque pass                           | **Partial**     | [Render Overview](/api/render/overview) |
+| PBR / lit material                    | **WIP**         | [Material](/api/render/material)        |
+| Alpha modes / blending                | **WIP**         | [Material](/api/render/material)        |
+| Double-sided flag                     | **WIP**         | [Material](/api/render/material)        |
+| Render extraction                     | **WIP**         | [Render Overview](/api/render/overview) |
+| Draw queue / sorting                  | **WIP**         | [Render Overview](/api/render/overview) |
+| Transparent pass                      | **WIP**         | [Render Overview](/api/render/overview) |
+| Pipeline cache                        | **WIP**         | [Render Overview](/api/render/overview) |
 
 ## Lighting
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| Directional light | **WIP** | [Lighting](/api/render/lighting) |
-| Point light | **WIP** | [Lighting](/api/render/lighting) |
-| Ambient light | **WIP** | [Lighting](/api/render/lighting) |
+| Feature               | Status  | API Page                         |
+| --------------------- | ------- | -------------------------------- |
+| Directional light     | **WIP** | [Lighting](/api/render/lighting) |
+| Point light           | **WIP** | [Lighting](/api/render/lighting) |
+| Ambient light         | **WIP** | [Lighting](/api/render/lighting) |
 | Light uniform buffers | **WIP** | [Lighting](/api/render/lighting) |
-| Lit shading path | **WIP** | [Lighting](/api/render/lighting) |
+| Lit shading path      | **WIP** | [Lighting](/api/render/lighting) |
 
 ## Assets
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| Mesh abstraction (`SafiMesh`) | **Implemented** | [Mesh](/api/render/mesh) |
-| Texture (raw in material) | **Partial** | [Material](/api/render/material) |
-| Material abstraction | **Partial** | [Material](/api/render/material) |
-| Shader loading | **Partial** | [Shader](/api/render/shader) |
-| glTF / scene loading | **Partial** | [glTF Loader](/api/render/gltf_loader) |
-| Asset handles / IDs | **WIP** | [Assets](/api/render/assets) |
-| Caching / deduplication | **WIP** | [Assets](/api/render/assets) |
-| Async / staged loading | **WIP** | [Assets](/api/render/assets) |
+| Feature                       | Status          | API Page                               |
+| ----------------------------- | --------------- | -------------------------------------- |
+| Mesh abstraction (`SafiMesh`) | **Implemented** | [Mesh](/api/render/mesh)               |
+| Texture (raw in material)     | **Partial**     | [Material](/api/render/material)       |
+| Material abstraction          | **Partial**     | [Material](/api/render/material)       |
+| Shader loading                | **Partial**     | [Shader](/api/render/shader)           |
+| glTF / scene loading          | **Implemented** | [glTF Loader](/api/render/gltf_loader) |
+| Asset handles / IDs           | **WIP**         | [Assets](/api/render/assets)           |
+| Caching / deduplication       | **WIP**         | [Assets](/api/render/assets)           |
+| Async / staged loading        | **WIP**         | [Assets](/api/render/assets)           |
 
 ## Input
 
-| Feature | Status | API Page |
-|---------|--------|----------|
+| Feature                              | Status          | API Page                  |
+| ------------------------------------ | --------------- | ------------------------- |
 | Keyboard (held / pressed / released) | **Implemented** | [Input](/api/input/input) |
-| Mouse position & buttons | **Implemented** | [Input](/api/input/input) |
-| Mouse delta | **Implemented** | [Input](/api/input/input) |
-| Input abstraction (ECS singleton) | **Implemented** | [Input](/api/input/input) |
-| Scroll / mouse wheel | **WIP** | [Input](/api/input/input) |
+| Mouse position & buttons             | **Implemented** | [Input](/api/input/input) |
+| Mouse delta                          | **Implemented** | [Input](/api/input/input) |
+| Input abstraction (ECS singleton)    | **Implemented** | [Input](/api/input/input) |
+| Scroll / mouse wheel                 | **WIP**         | [Input](/api/input/input) |
 
 ## Time
 
-| Feature | Status | API Page |
-|---------|--------|----------|
-| Delta time | **Implemented** | [Time](/api/core/time) |
-| Elapsed time | **Implemented** | [Time](/api/core/time) |
-| Frame counter | **Implemented** | [Time](/api/core/time) |
-| Fixed timestep | **WIP** | [Time](/api/core/time) |
+| Feature        | Status          | API Page               |
+| -------------- | --------------- | ---------------------- |
+| Delta time     | **Implemented** | [Time](/api/core/time) |
+| Elapsed time   | **Implemented** | [Time](/api/core/time) |
+| Frame counter  | **Implemented** | [Time](/api/core/time) |
+| Fixed timestep | **WIP**         | [Time](/api/core/time) |
+
+## Debug UI
+
+| Feature                                                      | Status          | API Page                     |
+| ------------------------------------------------------------ | --------------- | ---------------------------- |
+| Nuklear backend (SDL_gpu)                                    | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Scene hierarchy panel                                        | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Inspector panel                                              | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Entity selection                                             | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Component inspection (Transform, Camera, MeshRenderer, Spin) | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Custom widget support                                        | **Implemented** | [Debug UI](/api/ui/debug_ui) |
 
 ## Physics & Collision
 
-| Feature | Status | API Page |
-|---------|--------|----------|
+| Feature             | Status  | API Page                    |
+| ------------------- | ------- | --------------------------- |
 | Collider components | **WIP** | [Physics](/api/ecs/physics) |
-| Raycasts | **WIP** | [Physics](/api/ecs/physics) |
-| Overlap checks | **WIP** | [Physics](/api/ecs/physics) |
-| Kinematic bodies | **WIP** | [Physics](/api/ecs/physics) |
-| Rigid bodies | **WIP** | [Physics](/api/ecs/physics) |
+| Raycasts            | **WIP** | [Physics](/api/ecs/physics) |
+| Overlap checks      | **WIP** | [Physics](/api/ecs/physics) |
+| Kinematic bodies    | **WIP** | [Physics](/api/ecs/physics) |
+| Rigid bodies        | **WIP** | [Physics](/api/ecs/physics) |
 
 ---
 

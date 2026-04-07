@@ -1,17 +1,133 @@
 ---
 title: glTF Loader
-description: Load a .glb / .gltf file into a SafiMesh + SafiMaterial.
+description: Load glTF models via SafiModel (multi-material) or safi_gltf_load (single primitive).
 ---
 
-# `safi_gltf_load`
+# glTF Loading
 
 ```c
-#include <safi/render/gltf_loader.h>
+#include <safi/render/model.h>       // SafiModel — recommended
+#include <safi/render/gltf_loader.h> // safi_gltf_load — low-level, single primitive
 ```
 
-Minimal glTF 2.0 loader built on [cgltf](https://github.com/jkuhlmann/cgltf) and [stb_image](https://github.com/nothings/stb). The first-pass version walks the **first mesh's first primitive**, extracts `POSITION`, `NORMAL`, `TEXCOORD_0`, and the index buffer, and uploads everything to the GPU. If the primitive has a base-color texture it is loaded into the supplied material.
+SafiEngine provides two glTF loading paths built on [cgltf](https://github.com/jkuhlmann/cgltf) and [stb_image](https://github.com/nothings/stb):
 
-## Function
+| API               | Scope                                      | Use case                    |
+| ----------------- | ------------------------------------------ | --------------------------- |
+| `safi_model_load` | All meshes, all primitives, multi-material | Loading complete models     |
+| `safi_gltf_load`  | First mesh, first primitive only           | Quick single-geometry tests |
+
+## `SafiModel` (recommended)
+
+`SafiModel` is a self-contained renderable that holds merged geometry, per-primitive draw ranges, and per-material textures for an entire glTF file.
+
+### Types
+
+```c
+typedef struct SafiModelPrimitive {
+    uint32_t index_offset;     /* first index (element offset, not bytes) */
+    uint32_t index_count;      /* number of indices */
+    uint32_t material_index;   /* into SafiModel.base_colors[] */
+} SafiModelPrimitive;
+
+typedef struct SafiModel {
+    /* Shared GPU geometry */
+    SDL_GPUBuffer *vbo;
+    SDL_GPUBuffer *ibo;
+    uint32_t       vertex_count;
+    uint32_t       index_count;
+
+    /* Per-primitive draw ranges */
+    SafiModelPrimitive *primitives;
+    uint32_t            primitive_count;
+
+    /* Per-material textures (pipeline + sampler are shared) */
+    SDL_GPUTexture         **base_colors;    /* [material_count] */
+    uint32_t                 material_count;
+    SDL_GPUGraphicsPipeline *pipeline;       /* shared unlit pipeline */
+    SDL_GPUSampler          *sampler;        /* shared sampler */
+    SDL_GPUTexture          *white_fallback; /* 1x1 white for untextured materials */
+
+    float aabb_min[3];
+    float aabb_max[3];
+} SafiModel;
+```
+
+### Functions
+
+#### `safi_model_load`
+
+```c
+bool safi_model_load(SafiRenderer *r,
+                     const char   *path,
+                     const char   *shader_dir,
+                     SafiModel    *out);
+```
+
+| Parameter    | Description                                            |
+| ------------ | ------------------------------------------------------ |
+| `r`          | Active renderer                                        |
+| `path`       | Path to `.gltf` or `.glb` file                         |
+| `shader_dir` | Directory containing compiled `unlit` shader artifacts |
+| `out`        | Zero-initialised; receives the loaded model            |
+
+The loader:
+
+1. Parses all meshes and primitives in the glTF file
+2. Merges vertices and indices into a single shared VBO/IBO
+3. Deduplicates materials — each unique `cgltf_material` gets one texture slot
+4. Loads base-color textures (embedded or external URI); falls back to a solid color from `baseColorFactor` or a 1x1 white texture
+5. Computes an axis-aligned bounding box across all vertices
+6. Creates a shared unlit pipeline and sampler
+
+Returns `false` on parse/load/upload error.
+
+#### `safi_model_draw`
+
+```c
+void safi_model_draw(SafiRenderer    *r,
+                     const SafiModel *model,
+                     const float     *mvp);
+```
+
+Must be called inside an active render pass. Binds the shared VBO/IBO once, then loops over primitives — binding the correct material texture and issuing an indexed draw call for each.
+
+| Parameter | Description                                             |
+| --------- | ------------------------------------------------------- |
+| `r`       | Active renderer (with open render pass)                 |
+| `model`   | A loaded `SafiModel`                                    |
+| `mvp`     | Pointer to 16 floats (4x4 model-view-projection matrix) |
+
+#### `safi_model_destroy`
+
+```c
+void safi_model_destroy(SafiRenderer *r, SafiModel *model);
+```
+
+Releases all GPU resources (VBO, IBO, pipeline, sampler, textures) and zeroes the struct.
+
+### Example
+
+```c title="main.c"
+SafiModel model;
+if (!safi_model_load(&app.renderer, "assets/models/scene.glb",
+                     SAFI_DEMO_SHADER_DIR, &model)) {
+    SAFI_LOG_ERROR("failed to load model");
+    return 1;
+}
+
+// In the render pass:
+safi_model_draw(&app.renderer, &model, (const float *)mvp);
+
+// Cleanup:
+safi_model_destroy(&app.renderer, &model);
+```
+
+---
+
+## `safi_gltf_load` (low-level)
+
+Minimal single-primitive loader. Loads only the **first mesh's first primitive** into a `SafiMesh` + `SafiMaterial` pair.
 
 ```c
 bool safi_gltf_load(SafiRenderer *r,
@@ -20,46 +136,49 @@ bool safi_gltf_load(SafiRenderer *r,
                     SafiMaterial *inout_material);
 ```
 
-| Parameter        | Description                                                       |
-| ---------------- | ----------------------------------------------------------------- |
-| `r`              | Active renderer                                                   |
-| `path`           | Path to `.gltf` or `.glb`                                         |
-| `out_mesh`       | Zero-initialised; receives the uploaded VBO/IBO                   |
-| `inout_material` | Must already be created; base-color texture is set if present     |
+| Parameter        | Description                                                   |
+| ---------------- | ------------------------------------------------------------- |
+| `r`              | Active renderer                                               |
+| `path`           | Path to `.gltf` or `.glb`                                     |
+| `out_mesh`       | Zero-initialised; receives the uploaded VBO/IBO               |
+| `inout_material` | Must already be created; base-color texture is set if present |
 
-Returns `false` on parse/load/upload error. Texture loading is best-effort — if decoding fails the mesh still loads and you draw with whatever color the material already had.
-
-## Scope & limitations
-
-The loader is intentionally minimal in the first pass:
+### Limitations
 
 - Only the first primitive of the first mesh
 - No node graph / transforms
-- No skeletal animation
-- No morph targets
+- No skeletal animation or morph targets
 - Missing normals are replaced with `(0, 1, 0)`
 - Indices are always converted to `uint32_t`
 
-Growing past these is a planned follow-up.
+For multi-primitive or multi-material models, use `safi_model_load` instead.
 
-## Example
+### Example
 
 ```c
 SafiMaterial mat;
-safi_material_create_unlit(&app.renderer, &mat, "assets/shaders/unlit.hlsl");
+safi_material_create_unlit(&app.renderer, &mat, SAFI_DEMO_SHADER_DIR);
 
 SafiMesh mesh;
-if (!safi_gltf_load(&app.renderer, "assets/models/BoxTextured.glb", &mesh, &mat)) {
+if (!safi_gltf_load(&app.renderer, "assets/models/BoxTextured.glb",
+                    &mesh, &mat)) {
     SAFI_LOG_ERROR("failed to load model");
     return 1;
 }
-
-ecs_entity_t e = ecs_new(world);
-ecs_set(world, e, SafiTransform, { .rotation={0,0,0,1}, .scale={1,1,1} });
-ecs_set(world, e, SafiMeshRenderer, { .mesh = &mesh, .material = &mat });
 ```
+
+## Supported attributes
+
+Both loaders extract the same vertex attributes from glTF accessors:
+
+| Attribute          | glTF accessor | Fallback    |
+| ------------------ | ------------- | ----------- |
+| Position           | `POSITION`    | Required    |
+| Normal             | `NORMAL`      | `(0, 1, 0)` |
+| Texture coordinate | `TEXCOORD_0`  | `(0, 0)`    |
 
 ## See also
 
-- [`SafiMesh`](./mesh), [`SafiMaterial`](./material)
-- [cgltf spec coverage](https://github.com/jkuhlmann/cgltf#features)
+- [`SafiMesh`](./mesh) — vertex/index buffer pair
+- [`SafiMaterial`](./material) — graphics pipeline + texture
+- [`SafiRenderer`](./renderer) — frame lifecycle

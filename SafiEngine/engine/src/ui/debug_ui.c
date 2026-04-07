@@ -24,12 +24,15 @@
 
 #include "safi/ui/debug_ui.h"
 #include "safi/core/log.h"
+#include "safi/ecs/components.h"
 #include "safi/render/shader.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
+#include <cglm/cglm.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define NK_IMPLEMENTATION
 #define NK_INCLUDE_FIXED_TYPES
@@ -78,6 +81,8 @@ static struct {
 
     uint8_t *vbo_cpu;
     uint8_t *ibo_cpu;
+
+    ecs_entity_t selected_entity;
 } S;
 
 /* -- helpers --------------------------------------------------------------- */
@@ -504,4 +509,187 @@ struct nk_context *safi_debug_ui_context(void) {
 
 bool safi_debug_ui_wants_input(void) {
     return S.initialized && nk_item_is_any_active(&S.ctx);
+}
+
+ecs_entity_t safi_debug_ui_selected_entity(void) {
+    return S.selected_entity;
+}
+
+void safi_debug_ui_select_entity(ecs_entity_t e) {
+    S.selected_entity = e;
+}
+
+void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
+    if (!S.initialized) return;
+    struct nk_context *ctx = &S.ctx;
+    char buf[128];
+
+    /* ---- Scene Hierarchy (left side) --------------------------------- */
+    if (nk_begin(ctx, "Scene",
+                 nk_rect(20, 20, 200, 400),
+                 NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
+                 NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+        ecs_query_t *q = ecs_query(world, {
+            .terms = {{ .id = ecs_id(SafiName) }},
+            .cache_kind = EcsQueryCacheNone,
+        });
+        ecs_iter_t qit = ecs_query_iter(world, q);
+        while (ecs_query_next(&qit)) {
+            const SafiName *names = ecs_field(&qit, SafiName, 0);
+            for (int i = 0; i < qit.count; i++) {
+                nk_layout_row_dynamic(ctx, 22, 1);
+                nk_bool is_sel = (qit.entities[i] == S.selected_entity);
+                if (nk_selectable_label(ctx, names[i].value,
+                                        NK_TEXT_LEFT, &is_sel)) {
+                    S.selected_entity = qit.entities[i];
+                }
+            }
+        }
+        ecs_query_fini(q);
+    }
+    nk_end(ctx);
+
+    /* ---- Inspector (right side) -------------------------------------- */
+    float insp_x = (float)r->swapchain_w - 320.0f;
+    if (insp_x < 240.0f) insp_x = 240.0f;
+
+    if (nk_begin(ctx, "Inspector",
+                 nk_rect(insp_x, 20, 300, 520),
+                 NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
+                 NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+
+        if (!S.selected_entity) {
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "No entity selected", NK_TEXT_LEFT);
+            goto inspector_end;
+        }
+
+        /* Entity name header */
+        const SafiName *name = ecs_get(world, S.selected_entity, SafiName);
+        if (name) {
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, name->value, NK_TEXT_LEFT);
+        }
+
+        /* ---- SafiTransform ------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiTransform)) {
+            SafiTransform *xf = ecs_get_mut(world, S.selected_entity,
+                                            SafiTransform);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Position", NK_TEXT_LEFT);
+            nk_property_float(ctx, "pos x", -100.0f,
+                              &xf->position[0], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "pos y", -100.0f,
+                              &xf->position[1], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "pos z", -100.0f,
+                              &xf->position[2], 100.0f, 0.1f, 0.01f);
+
+            mat4 rot_mat;
+            vec3 euler_rad;
+            glm_quat_mat4(xf->rotation, rot_mat);
+            glm_euler_angles(rot_mat, euler_rad);
+            float rot_deg[3] = {
+                glm_deg(euler_rad[0]),
+                glm_deg(euler_rad[1]),
+                glm_deg(euler_rad[2]),
+            };
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Rotation", NK_TEXT_LEFT);
+            nk_property_float(ctx, "rot x", -180.0f,
+                              &rot_deg[0], 180.0f, 1.0f, 0.5f);
+            nk_property_float(ctx, "rot y", -180.0f,
+                              &rot_deg[1], 180.0f, 1.0f, 0.5f);
+            nk_property_float(ctx, "rot z", -180.0f,
+                              &rot_deg[2], 180.0f, 1.0f, 0.5f);
+
+            euler_rad[0] = glm_rad(rot_deg[0]);
+            euler_rad[1] = glm_rad(rot_deg[1]);
+            euler_rad[2] = glm_rad(rot_deg[2]);
+            glm_euler_xyz(euler_rad, rot_mat);
+            glm_mat4_quat(rot_mat, xf->rotation);
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Scale", NK_TEXT_LEFT);
+            nk_property_float(ctx, "scale x", 0.01f,
+                              &xf->scale[0], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "scale y", 0.01f,
+                              &xf->scale[1], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "scale z", 0.01f,
+                              &xf->scale[2], 100.0f, 0.1f, 0.01f);
+        }
+
+        /* ---- SafiCamera ---------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiCamera)) {
+            SafiCamera *cam = ecs_get_mut(world, S.selected_entity,
+                                          SafiCamera);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Camera", NK_TEXT_LEFT);
+
+            float fov_deg = glm_deg(cam->fov_y_radians);
+            nk_property_float(ctx, "FOV", 1.0f, &fov_deg, 179.0f,
+                              1.0f, 0.5f);
+            cam->fov_y_radians = glm_rad(fov_deg);
+
+            nk_property_float(ctx, "Near", 0.001f,
+                              &cam->z_near, 100.0f, 0.01f, 0.001f);
+            nk_property_float(ctx, "Far", 1.0f,
+                              &cam->z_far, 10000.0f, 1.0f, 0.5f);
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Target", NK_TEXT_LEFT);
+            nk_property_float(ctx, "target x", -100.0f,
+                              &cam->target[0], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "target y", -100.0f,
+                              &cam->target[1], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "target z", -100.0f,
+                              &cam->target[2], 100.0f, 0.1f, 0.01f);
+        }
+
+        /* ---- SafiMeshRenderer ---------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiMeshRenderer)) {
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "MeshRenderer", NK_TEXT_LEFT);
+
+            const SafiMeshRenderer *mr = ecs_get(world, S.selected_entity,
+                                                  SafiMeshRenderer);
+            snprintf(buf, sizeof(buf), "Mesh: %s",
+                     mr->mesh ? "assigned" : "none");
+            nk_label(ctx, buf, NK_TEXT_LEFT);
+            snprintf(buf, sizeof(buf), "Material: %s",
+                     mr->material ? "assigned" : "none");
+            nk_label(ctx, buf, NK_TEXT_LEFT);
+        }
+
+        /* ---- SafiSpin ------------------------------------------------ */
+        if (ecs_has(world, S.selected_entity, SafiSpin)) {
+            SafiSpin *spin = ecs_get_mut(world, S.selected_entity, SafiSpin);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Spin", NK_TEXT_LEFT);
+            nk_property_float(ctx, "speed", -20.0f,
+                              &spin->speed, 20.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "axis x", -1.0f,
+                              &spin->axis[0], 1.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "axis y", -1.0f,
+                              &spin->axis[1], 1.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "axis z", -1.0f,
+                              &spin->axis[2], 1.0f, 0.1f, 0.01f);
+        }
+    }
+inspector_end:
+    nk_end(ctx);
 }

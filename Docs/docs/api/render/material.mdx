@@ -1,6 +1,6 @@
 ---
 title: SafiMaterial
-description: Graphics pipeline + sampler + base-color texture.
+description: Graphics pipeline + sampler + base-color texture for unlit rendering.
 ---
 
 # `SafiMaterial`
@@ -9,10 +9,15 @@ description: Graphics pipeline + sampler + base-color texture.
 #include <safi/render/material.h>
 ```
 
-The first-pass engine ships a single material type: **unlit textured**. It owns a `SDL_GPUGraphicsPipeline`, a `SDL_GPUSampler`, and (optionally) a base-color `SDL_GPUTexture`.
+The engine ships a single material type: **unlit textured**. It owns a `SDL_GPUGraphicsPipeline`, a `SDL_GPUSampler`, and (optionally) a base-color `SDL_GPUTexture`.
+
+:::tip Multi-material models
+For glTF files with multiple materials, use [`SafiModel`](./gltf_loader) instead of managing `SafiMaterial` instances directly. `SafiModel` handles material deduplication, per-primitive texture binding, and fallback textures automatically.
+:::
 
 :::warning WIP — Material system
 Only the unlit textured material exists. The following are not yet implemented:
+
 - **PBR / lit materials** — no metallic-roughness or normal-map pipeline
 - **Alpha modes** — no opaque/mask/blend handling (`enable_blend = false`)
 - **Material parameters** — no generalized uniform/parameter block; only base-color texture
@@ -60,7 +65,7 @@ bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
                                         uint32_t width, uint32_t height);
 ```
 
-Uploads an RGBA8 texture and binds it as the base color. Replaces any previously bound texture. `safi_gltf_load` calls this automatically when the glTF has a base-color texture.
+Uploads an RGBA8 texture and binds it as the base color. Replaces any previously bound texture. `safi_gltf_load` and `safi_model_load` call this automatically when the glTF has a base-color texture.
 
 ### `safi_material_destroy`
 
@@ -92,3 +97,4 @@ safi_material_set_base_color_rgba8(&app.renderer, &mat, white, 1, 1);
 
 - [`safi_shader_load`](./shader)
 - [`SafiMesh`](./mesh)
+- [`SafiModel`](./gltf_loader) — multi-material model loading

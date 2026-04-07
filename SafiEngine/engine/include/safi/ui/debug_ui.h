@@ -10,6 +10,7 @@
 #define SAFI_UI_DEBUG_UI_H
 
 #include <stdbool.h>
+#include <flecs.h>
 #include "safi/render/renderer.h"
 
 /* Forward declaration — the full nk_context lives inside nuklear.h, which
@@ -36,6 +37,16 @@ void safi_debug_ui_prepare(SafiRenderer *r);
  * while the main render pass is open (i.e. after begin_main_pass, before
  * end_main_pass). */
 void safi_debug_ui_render(SafiRenderer *r);
+
+/* Draw the built-in Scene hierarchy (left) + Inspector (right) panels.
+ * Queries the ECS world for named entities and displays editable
+ * components for the currently selected entity.  Call between
+ * safi_debug_ui_begin_frame and safi_debug_ui_prepare. */
+void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world);
+
+/* Get / set the entity shown in the inspector. */
+ecs_entity_t safi_debug_ui_selected_entity(void);
+void         safi_debug_ui_select_entity(ecs_entity_t e);
 
 /* Get the Nuklear context. NULL until safi_debug_ui_init has succeeded.
  * Include <nuklear.h> (with the same NK_* macros used by the engine) to

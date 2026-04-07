@@ -15,18 +15,6 @@
 
 #include <SDL3/SDL.h>
 
-/* Nuklear: the engine's debug_ui.c owns NK_IMPLEMENTATION; this TU only
- * needs the struct definitions and widget functions — the same feature
- * macros must be set for struct layout to match across translation units. */
-#define NK_INCLUDE_FIXED_TYPES
-#define NK_INCLUDE_STANDARD_IO
-#define NK_INCLUDE_STANDARD_VARARGS
-#define NK_INCLUDE_DEFAULT_ALLOCATOR
-#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
-#define NK_INCLUDE_FONT_BAKING
-#define NK_INCLUDE_DEFAULT_FONT
-#include <nuklear.h>
-
 #include <stdio.h>
 #include <string.h>
 
@@ -48,37 +36,31 @@ static void control_system(ecs_iter_t *it) {
     const SafiInput *in = ecs_singleton_get(it->world, SafiInput);
     if (!in) return;
 
-    SafiTransform *xform = ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
-    if (!xform) return;
-
     float dt = it->delta_time;
     float rate = 1.5f; /* rad/s */
 
-    /* Apply a delta quaternion to xform->rotation in world space.
-     * IMPORTANT: cglm's glm_quat_mul does not safely alias dest with the
-     * second operand — it writes intermediate components while still reading
-     * the original, which corrupts the result. Use a local tmp and copy
-     * back. Normalize afterwards to prevent drift across many frames. */
-    #define APPLY_DELTA(angle, ax, ay, az) do {                         \
-        versor _q, _tmp;                                                \
-        glm_quatv(_q, (angle), (vec3){(ax),(ay),(az)});                 \
-        glm_quat_mul(_q, xform->rotation, _tmp);                        \
-        glm_quat_copy(_tmp, xform->rotation);                           \
-    } while (0)
+    /* Rotate the model entity (arrows + A/D) regardless of selection. */
+    SafiTransform *xform = ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
+    if (xform) {
+        #define APPLY_DELTA(angle, ax, ay, az) do {                         \
+            versor _q, _tmp;                                                \
+            glm_quatv(_q, (angle), (vec3){(ax),(ay),(az)});                 \
+            glm_quat_mul(_q, xform->rotation, _tmp);                        \
+            glm_quat_copy(_tmp, xform->rotation);                           \
+        } while (0)
 
-    /* Arrows → yaw / pitch (world-space) */
-    if (in->keys[SDL_SCANCODE_LEFT])  APPLY_DELTA( rate*dt, 0,1,0);
-    if (in->keys[SDL_SCANCODE_RIGHT]) APPLY_DELTA(-rate*dt, 0,1,0);
-    if (in->keys[SDL_SCANCODE_UP])    APPLY_DELTA( rate*dt, 1,0,0);
-    if (in->keys[SDL_SCANCODE_DOWN])  APPLY_DELTA(-rate*dt, 1,0,0);
+        if (in->keys[SDL_SCANCODE_LEFT])  APPLY_DELTA( rate*dt, 0,1,0);
+        if (in->keys[SDL_SCANCODE_RIGHT]) APPLY_DELTA(-rate*dt, 0,1,0);
+        if (in->keys[SDL_SCANCODE_UP])    APPLY_DELTA( rate*dt, 1,0,0);
+        if (in->keys[SDL_SCANCODE_DOWN])  APPLY_DELTA(-rate*dt, 1,0,0);
+        if (in->keys[SDL_SCANCODE_A])     APPLY_DELTA( rate*dt, 0,0,1);
+        if (in->keys[SDL_SCANCODE_D])     APPLY_DELTA(-rate*dt, 0,0,1);
 
-    /* A / D → roll */
-    if (in->keys[SDL_SCANCODE_A])     APPLY_DELTA( rate*dt, 0,0,1);
-    if (in->keys[SDL_SCANCODE_D])     APPLY_DELTA(-rate*dt, 0,0,1);
+        #undef APPLY_DELTA
 
-    #undef APPLY_DELTA
-
-    glm_quat_normalize(xform->rotation);
+        glm_quat_normalize(xform->rotation);
+        ecs_modified(it->world, g_demo.model_entity, SafiTransform);
+    }
 
     /* W / S → dolly camera */
     SafiCamera *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
@@ -86,8 +68,6 @@ static void control_system(ecs_iter_t *it) {
         if (in->keys[SDL_SCANCODE_W]) cam->target[2] -= 2.0f * dt;
         if (in->keys[SDL_SCANCODE_S]) cam->target[2] += 2.0f * dt;
     }
-
-    ecs_modified(it->world, g_demo.model_entity, SafiTransform);
 }
 
 /* Render system: draws the glTF model + Nuklear debug UI.
@@ -114,72 +94,14 @@ static void render_system(ecs_iter_t *it) {
     if (!safi_renderer_begin_frame(r)) return;
 
     SafiCamera    *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
-    SafiTransform *xf  = ecs_get_mut(it->world, g_demo.model_entity,  SafiTransform);
+    SafiTransform *xf  = ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
     if (!cam || !xf) { safi_renderer_end_frame(r); return; }
 
     /* ---- Build Nuklear widgets (pre-pass) ------------------------------ */
     if (a->debug_ui_enabled) {
         safi_debug_ui_begin_frame(r);
-        struct nk_context *ctx = safi_debug_ui_context();
-        if (ctx && nk_begin(ctx, "SafiEngine",
-                            nk_rect(20, 20, 300, 520),
-                            NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
-                            NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
-            char buf[64];
-
-            nk_layout_row_dynamic(ctx, 18, 1);
-            snprintf(buf, sizeof(buf), "Backend: %s", safi_renderer_backend_name(r));
-            nk_label(ctx, buf, NK_TEXT_LEFT);
-            snprintf(buf, sizeof(buf), "FPS: %.1f",
-                     1.0f / (it->delta_time > 0 ? it->delta_time : 1.0f));
-            nk_label(ctx, buf, NK_TEXT_LEFT);
-
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Position", NK_TEXT_LEFT);
-            nk_property_float(ctx, "pos x", -100.0f, &xf->position[0], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "pos y", -100.0f, &xf->position[1], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "pos z", -100.0f, &xf->position[2], 100.0f, 0.1f, 0.01f);
-
-            /* Extract euler angles (radians) from the quaternion, convert to
-             * degrees for the UI, then convert back after editing. */
-            mat4 rot_mat;
-            vec3 euler_rad;
-            glm_quat_mat4(xf->rotation, rot_mat);
-            glm_euler_angles(rot_mat, euler_rad);
-            float rot_deg[3] = {
-                glm_deg(euler_rad[0]),
-                glm_deg(euler_rad[1]),
-                glm_deg(euler_rad[2]),
-            };
-
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Rotation", NK_TEXT_LEFT);
-            nk_property_float(ctx, "rot x", -180.0f, &rot_deg[0], 180.0f, 1.0f, 0.5f);
-            nk_property_float(ctx, "rot y", -180.0f, &rot_deg[1], 180.0f, 1.0f, 0.5f);
-            nk_property_float(ctx, "rot z", -180.0f, &rot_deg[2], 180.0f, 1.0f, 0.5f);
-
-            /* Write modified euler angles back to the quaternion. */
-            euler_rad[0] = glm_rad(rot_deg[0]);
-            euler_rad[1] = glm_rad(rot_deg[1]);
-            euler_rad[2] = glm_rad(rot_deg[2]);
-            glm_euler_xyz(euler_rad, rot_mat);
-            glm_mat4_quat(rot_mat, xf->rotation);
-
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Scale", NK_TEXT_LEFT);
-            nk_property_float(ctx, "scale x", 0.01f, &xf->scale[0], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "scale y", 0.01f, &xf->scale[1], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "scale z", 0.01f, &xf->scale[2], 100.0f, 0.1f, 0.01f);
-        }
-        if (ctx) nk_end(ctx);
-
-        safi_debug_ui_prepare(r);  /* runs its own copy pass — must be pre-pass */
+        safi_debug_ui_draw_panels(r, it->world);
+        safi_debug_ui_prepare(r);
     }
 
     /* ---- Main render pass --------------------------------------------- */
@@ -251,8 +173,8 @@ int main(int argc, char **argv) {
      * Compiled shaders live in SAFI_DEMO_SHADER_DIR (see CMakeLists.txt);
      * the loader picks .spv or .msl based on the active GPU backend. */
     char model_path[1024];
-    // snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
-    snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
+    snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
+    // snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
 
     if (!safi_model_load(&app.renderer, model_path, SAFI_DEMO_SHADER_DIR, &g_demo.model)) {
         SAFI_LOG_ERROR("failed to load %s", model_path);
@@ -276,6 +198,10 @@ int main(int argc, char **argv) {
         .z_far         = 100.0f,
         .target        = {0, 0, 0},
     });
+    ecs_set(world, g_demo.camera_entity, SafiName, { .value = "Camera" });
+
+    /* Default selection for the inspector. */
+    safi_debug_ui_select_entity(g_demo.model_entity);
 
     /* Register user systems. Store app ptr in ctx so render_system can
      * reach the renderer. */
