@@ -42,6 +42,10 @@ static DemoState g_demo;
 /* ---- Systems ----------------------------------------------------------- */
 
 static void control_system(ecs_iter_t *it) {
+    /* Skip game keyboard controls when a Nuklear widget is active (e.g. the
+     * user is typing a number into a property field). */
+    if (safi_debug_ui_wants_input()) return;
+
     const SafiInput *in = ecs_singleton_get(it->world, SafiInput);
     if (!in) return;
 
@@ -56,11 +60,11 @@ static void control_system(ecs_iter_t *it) {
      * second operand — it writes intermediate components while still reading
      * the original, which corrupts the result. Use a local tmp and copy
      * back. Normalize afterwards to prevent drift across many frames. */
-    #define APPLY_DELTA(angle, ax, ay, az) do {                      \
-        versor _q, _tmp;                                              \
-        glm_quatv(_q, (angle), (vec3){(ax),(ay),(az)});               \
-        glm_quat_mul(_q, xform->rotation, _tmp);                      \
-        glm_quat_copy(_tmp, xform->rotation);                         \
+    #define APPLY_DELTA(angle, ax, ay, az) do {                         \
+        versor _q, _tmp;                                                \
+        glm_quatv(_q, (angle), (vec3){(ax),(ay),(az)});                 \
+        glm_quat_mul(_q, xform->rotation, _tmp);                        \
+        glm_quat_copy(_tmp, xform->rotation);                           \
     } while (0)
 
     /* Arrows → yaw / pitch (world-space) */
@@ -119,7 +123,7 @@ static void render_system(ecs_iter_t *it) {
         safi_debug_ui_begin_frame(r);
         struct nk_context *ctx = safi_debug_ui_context();
         if (ctx && nk_begin(ctx, "SafiEngine",
-                            nk_rect(20, 20, 300, 260),
+                            nk_rect(20, 20, 300, 520),
                             NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
                             NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
             char buf[64];
@@ -134,13 +138,45 @@ static void render_system(ecs_iter_t *it) {
             nk_layout_row_dynamic(ctx, 6, 1);
             nk_spacing(ctx, 1);
             nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Model transform", NK_TEXT_LEFT);
+            nk_label(ctx, "Position", NK_TEXT_LEFT);
+            nk_property_float(ctx, "pos x", -100.0f, &xf->position[0], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "pos y", -100.0f, &xf->position[1], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "pos z", -100.0f, &xf->position[2], 100.0f, 0.1f, 0.01f);
 
-            nk_property_float(ctx, "pos x", -10.0f, &xf->position[0], 10.0f, 0.01f, 0.01f);
-            nk_property_float(ctx, "pos y", -10.0f, &xf->position[1], 10.0f, 0.01f, 0.01f);
-            nk_property_float(ctx, "pos z", -10.0f, &xf->position[2], 10.0f, 0.01f, 0.01f);
-            nk_property_float(ctx, "scale", 0.01f, &xf->scale[0], 10.0f, 0.01f, 0.01f);
-            xf->scale[1] = xf->scale[2] = xf->scale[0];
+            /* Extract euler angles (radians) from the quaternion, convert to
+             * degrees for the UI, then convert back after editing. */
+            mat4 rot_mat;
+            vec3 euler_rad;
+            glm_quat_mat4(xf->rotation, rot_mat);
+            glm_euler_angles(rot_mat, euler_rad);
+            float rot_deg[3] = {
+                glm_deg(euler_rad[0]),
+                glm_deg(euler_rad[1]),
+                glm_deg(euler_rad[2]),
+            };
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Rotation", NK_TEXT_LEFT);
+            nk_property_float(ctx, "rot x", -180.0f, &rot_deg[0], 180.0f, 1.0f, 0.5f);
+            nk_property_float(ctx, "rot y", -180.0f, &rot_deg[1], 180.0f, 1.0f, 0.5f);
+            nk_property_float(ctx, "rot z", -180.0f, &rot_deg[2], 180.0f, 1.0f, 0.5f);
+
+            /* Write modified euler angles back to the quaternion. */
+            euler_rad[0] = glm_rad(rot_deg[0]);
+            euler_rad[1] = glm_rad(rot_deg[1]);
+            euler_rad[2] = glm_rad(rot_deg[2]);
+            glm_euler_xyz(euler_rad, rot_mat);
+            glm_mat4_quat(rot_mat, xf->rotation);
+
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Scale", NK_TEXT_LEFT);
+            nk_property_float(ctx, "scale x", 0.01f, &xf->scale[0], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "scale y", 0.01f, &xf->scale[1], 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "scale z", 0.01f, &xf->scale[2], 100.0f, 0.1f, 0.01f);
         }
         if (ctx) nk_end(ctx);
 

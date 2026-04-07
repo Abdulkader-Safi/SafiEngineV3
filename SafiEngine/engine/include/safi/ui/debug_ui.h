@@ -42,4 +42,9 @@ void safi_debug_ui_render(SafiRenderer *r);
  * access the full struct and call widget functions. */
 struct nk_context *safi_debug_ui_context(void);
 
+/* Returns true when a Nuklear widget is active (e.g. editing a property
+ * value). Game input systems should skip keyboard handling when this is
+ * true so that typed numbers go to the UI instead of moving the camera. */
+bool safi_debug_ui_wants_input(void);
+
 #endif /* SAFI_UI_DEBUG_UI_H */

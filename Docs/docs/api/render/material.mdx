@@ -28,10 +28,10 @@ typedef struct SafiMaterial {
 ```c
 bool safi_material_create_unlit(SafiRenderer *r,
                                 SafiMaterial *out,
-                                const char   *hlsl_path);
+                                const char   *shader_dir);
 ```
 
-Reads the given HLSL file, compiles it through `safi_shader_compile_hlsl` for both stages (`vs_main` and `fs_main`), and builds a graphics pipeline that:
+Loads the compiled `unlit` shader artifacts from `shader_dir` via `safi_shader_load` (both `vs_main` and `fs_main` stages) and builds a graphics pipeline that:
 
 - reads `SafiVertex` from vertex buffer slot 0
 - draws triangle lists with back-face culling and counter-clockwise front faces
@@ -61,17 +61,17 @@ void safi_material_destroy(SafiRenderer *r, SafiMaterial *m);
 
 The default HLSL uses these bindings — if you write your own shader, match them or override the pipeline:
 
-| Binding             | Purpose            |
-| ------------------- | ------------------ |
+| Binding                             | Purpose                                                           |
+| ----------------------------------- | ----------------------------------------------------------------- |
 | `cbuffer b0, space1` (vertex stage) | `float4x4 mvp` uniform, pushed via `SDL_PushGPUVertexUniformData` |
-| `Texture2D t0, space2` (fragment)   | base color texture |
-| `SamplerState s0, space2`           | sampler            |
+| `Texture2D t0, space2` (fragment)   | base color texture                                                |
+| `SamplerState s0, space2`           | sampler                                                           |
 
 ## Example
 
 ```c
 SafiMaterial mat;
-safi_material_create_unlit(&app.renderer, &mat, "assets/shaders/unlit.hlsl");
+safi_material_create_unlit(&app.renderer, &mat, SAFI_DEMO_SHADER_DIR);
 
 uint8_t white[] = {255, 255, 255, 255};
 safi_material_set_base_color_rgba8(&app.renderer, &mat, white, 1, 1);
@@ -79,5 +79,5 @@ safi_material_set_base_color_rgba8(&app.renderer, &mat, white, 1, 1);
 
 ## See also
 
-- [`safi_shader_compile_hlsl`](./shader)
+- [`safi_shader_load`](./shader)
 - [`SafiMesh`](./mesh)

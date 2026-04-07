@@ -1,6 +1,6 @@
 ---
 title: Shaders
-description: Creating SDL_GPUShader objects from source.
+description: Loading cross-platform GPU shaders from compiled artifacts.
 ---
 
 # Shaders
@@ -9,29 +9,44 @@ description: Creating SDL_GPUShader objects from source.
 #include <safi/render/shader.h>
 ```
 
-`safi_shader_create` is a thin wrapper around `SDL_CreateGPUShader` that handles the boilerplate of building an `SDL_GPUShaderCreateInfo` and reporting errors through the engine's logger.
+Shaders are authored once in **HLSL** and compiled at build time into per-stage **SPIR-V** (`.spv`) and **MSL** (`.msl`) artifacts by `cmake/SafiShaders.cmake` (via glslangValidator + spirv-cross). At runtime, `safi_shader_load` inspects `SDL_GetGPUShaderFormats()` and picks the artifact matching the active backend — the caller only knows the logical shader name.
 
-:::tip First milestone: MSL only
-The current build targets SDL_gpu's **Metal** backend on macOS and expects shader source in **MSL (Metal Shading Language)**. The function signature is intentionally backend-agnostic so that when cross-platform shader compilation lands (via a working SDL_shadercross or offline glslang) callers won't need to change.
-:::
+## Functions
 
-## Function
+### `safi_shader_load`
 
 ```c
-SDL_GPUShader *safi_shader_create(SafiRenderer    *r,
-                                  const char      *source,
-                                  size_t           source_length,
-                                  const char      *entrypoint,
-                                  SafiShaderStage  stage,
-                                  uint32_t         num_samplers,
-                                  uint32_t         num_uniform_buffers,
-                                  uint32_t         num_storage_buffers,
-                                  uint32_t         num_storage_textures);
+SDL_GPUShader *safi_shader_load(SafiRenderer    *r,
+                                const char      *shader_dir,
+                                const char      *name,
+                                const char      *entrypoint,
+                                SafiShaderStage  stage,
+                                uint32_t         num_samplers,
+                                uint32_t         num_uniform_buffers,
+                                uint32_t         num_storage_buffers,
+                                uint32_t         num_storage_textures);
 ```
 
-Returns a ready-to-bind `SDL_GPUShader *` or `NULL` on failure (check `SDL_GetError()` for details). Pass `source_length = 0` and the function will call `strlen(source)` for you.
+Loads `<shader_dir>/<name>.<vert|frag>.<spv|msl>` based on the device's supported formats. Returns a ready-to-bind `SDL_GPUShader *` or `NULL` on failure.
 
-The four trailing counts tell SDL_gpu how many of each resource the shader will bind at draw time — they must match the `[[buffer]] / [[texture]] / [[sampler]]` attributes in your MSL.
+The four trailing counts tell SDL_gpu how many of each resource the shader will bind at draw time — they must match the `register()` declarations in your HLSL.
+
+### `safi_shader_create_blob`
+
+```c
+SDL_GPUShader *safi_shader_create_blob(SafiRenderer      *r,
+                                       const void        *bytes,
+                                       size_t             size,
+                                       SDL_GPUShaderFormat format,
+                                       const char        *entrypoint,
+                                       SafiShaderStage    stage,
+                                       uint32_t           num_samplers,
+                                       uint32_t           num_uniform_buffers,
+                                       uint32_t           num_storage_buffers,
+                                       uint32_t           num_storage_textures);
+```
+
+Low-level: creates a GPU shader directly from a pre-compiled byte blob of a known format. Prefer `safi_shader_load` unless you are shipping embedded bytecode.
 
 ## Stages
 
@@ -44,53 +59,55 @@ typedef enum SafiShaderStage {
 
 Compute shaders aren't wrapped yet — call `SDL_CreateGPUComputePipeline` directly if you need them.
 
-## Metal binding layout (SDL_gpu rules)
+## HLSL binding layout (SDL_gpu rules)
 
-SDL_gpu's Metal backend maps resources to Metal attribute slots like this:
+SDL_gpu maps HLSL register spaces to resource slots:
 
-| Resource                  | Metal attribute                                        |
-| ------------------------- | ------------------------------------------------------ |
-| Vertex buffer slot N      | `[[buffer(N)]]`                                        |
-| Vertex storage buffer N   | `[[buffer(numVertexBuffers + N)]]`                     |
-| Vertex uniform buffer N   | `[[buffer(numVertexBuffers + numStorageBuffers + N)]]` |
-| Fragment texture slot N   | `[[texture(N)]]`                                       |
-| Fragment sampler slot N   | `[[sampler(N)]]`                                       |
-| Fragment uniform buffer N | `[[buffer(numStorageBuffers + N)]]`                    |
+| Resource                  | HLSL register          |
+| ------------------------- | ---------------------- |
+| Vertex uniform buffer N   | `register(bN, space1)` |
+| Fragment texture N        | `register(tN, space2)` |
+| Fragment sampler N        | `register(sN, space2)` |
+| Fragment uniform buffer N | `register(bN, space3)` |
 
-For the engine's unlit material (1 vertex buffer, 1 vertex uniform, 1 fragment texture+sampler):
+For the engine's unlit material (1 vertex uniform, 1 fragment texture + sampler):
 
-```sh
-vertex VSOut vs_main(VSIn in [[stage_in]],                    // slot 0
-                     constant UBO &u [[buffer(1)]]) { ... }   // slot 1 (1 VB + 0 SSBO)
+```hlsl
+cbuffer MVPBlock : register(b0, space1) {
+    float4x4 mvp;
+};
 
-fragment float4 fs_main(VSOut in [[stage_in]],
-                        texture2d<float> tex [[texture(0)]],
-                        sampler          smp [[sampler(0)]]) { ... }
+Texture2D    base_tex : register(t0, space2);
+SamplerState base_smp : register(s0, space2);
+
+VSOutput vs_main(VSInput input) { ... }
+float4   fs_main(VSOutput input) : SV_Target0 { ... }
 ```
+
+## Build pipeline
+
+The CMake helper `safi_compile_shader()` (in `cmake/SafiShaders.cmake`) runs two steps per stage:
+
+1. **HLSL → SPIR-V** via `glslangValidator -V -D -S <stage> -e <entry>`
+2. **SPIR-V → MSL** via `spirv-cross --msl --msl-version 20000`
+
+Generated artifacts land in `${CMAKE_BINARY_DIR}/shaders/`. See `examples/gltf_viewer/assets/shaders/unlit.hlsl` and `engine/src/ui/shaders/nuklear.hlsl` for working examples.
 
 ## Example
 
 ```c
-static const char *MY_SHADER =
-    "#include <metal_stdlib>\n"
-    "using namespace metal;\n"
-    "vertex float4 vs_main(uint vid [[vertex_id]]) {\n"
-    "    float2 p = float2((vid << 1) & 2, vid & 2);\n"
-    "    return float4(p * 2.0 - 1.0, 0.0, 1.0);\n"
-    "}\n"
-    "fragment float4 fs_main() { return float4(1, 0, 0, 1); }\n";
+SDL_GPUShader *vs = safi_shader_load(
+    &app.renderer, SAFI_DEMO_SHADER_DIR,
+    "unlit", "vs_main", SAFI_SHADER_STAGE_VERTEX,
+    /*samplers*/ 0, /*ubo*/ 1, /*ssbo*/ 0, /*stex*/ 0);
 
-SDL_GPUShader *vs = safi_shader_create(
-    &app.renderer, MY_SHADER, 0, "vs_main", SAFI_SHADER_STAGE_VERTEX,
-    /*samplers*/ 0, /*ubo*/ 0, /*ssbo*/ 0, /*stex*/ 0);
-
-SDL_GPUShader *fs = safi_shader_create(
-    &app.renderer, MY_SHADER, 0, "fs_main", SAFI_SHADER_STAGE_FRAGMENT,
-    0, 0, 0, 0);
+SDL_GPUShader *fs = safi_shader_load(
+    &app.renderer, SAFI_DEMO_SHADER_DIR,
+    "unlit", "fs_main", SAFI_SHADER_STAGE_FRAGMENT,
+    /*samplers*/ 1, /*ubo*/ 0, /*ssbo*/ 0, /*stex*/ 0);
 ```
 
 ## See also
 
 - [`SafiMaterial`](./material) — builds a graphics pipeline from a `vs_main` + `fs_main` pair
 - [Render overview](./overview) — frame lifecycle and coordinate conventions
-- [Apple Metal Shading Language spec](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf)

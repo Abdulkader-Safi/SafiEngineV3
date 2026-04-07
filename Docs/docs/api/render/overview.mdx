@@ -26,11 +26,11 @@ safi_renderer_end_frame(r)
 
 Only one render pass per frame in the first-pass engine. Adding more passes (shadow maps, post-processing) is a future evolution.
 
-## Shaders: MSL today, cross-platform later
+## Shaders: HLSL → SPIR-V + MSL
 
-First milestone shaders are authored in **MSL (Metal Shading Language)** and passed straight to `SDL_CreateGPUShader` via [`safi_shader_create`](./shader). This gets the engine up and running on the Metal backend with zero extra toolchain setup.
+Shaders are authored once in **HLSL** and compiled at build time into **SPIR-V** (for Vulkan) and **MSL** (for Metal) via glslangValidator + spirv-cross. At runtime, [`safi_shader_load`](./shader) inspects `SDL_GetGPUShaderFormats()` and picks the matching artifact — callers only pass a logical shader name like `"unlit"`.
 
-Cross-platform shader compilation (one source → SPIR-V for Vulkan and DXIL for D3D12) is a planned follow-up once either (a) a newer SDL_shadercross release fixes its vendored DirectXShaderCompiler build on modern Apple libc++, or (b) we offline-compile HLSL/GLSL → SPIR-V via glslang at build time.
+See [`cmake/SafiShaders.cmake`](./shader#build-pipeline) for the build pipeline and [Shaders](./shader) for the HLSL binding layout.
 
 ## Coordinate conventions
 
@@ -49,5 +49,5 @@ These match cglm's `glm_lookat` / `glm_perspective` defaults, so you can hand ca
 - [`SafiRenderer`](./renderer)
 - [`SafiMesh`](./mesh)
 - [`SafiMaterial`](./material)
-- [`safi_shader_compile_hlsl`](./shader)
+- [`safi_shader_load`](./shader)
 - [`safi_gltf_load`](./gltf_loader)

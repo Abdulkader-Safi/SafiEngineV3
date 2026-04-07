@@ -2,7 +2,7 @@
 
 A pure-C game engine built on:
 
-- **SDL3** + **SDL_gpu** — windowing, input, and a modern explicit GPU API. First milestone targets the Metal backend on macOS; shaders are authored in MSL. Cross-platform shader pipelines (Vulkan / D3D12) are a planned follow-up.
+- **SDL3** + **SDL_gpu** — windowing, input, and a modern explicit GPU API (Metal, Vulkan, D3D12). Shaders are authored once in HLSL and compiled at build time to SPIR-V + MSL via glslang + spirv-cross.
 - **flecs** — Bevy-like archetype ECS with components, systems, queries, pipelines
 - **cglm** — C SIMD math (vec / mat / quat)
 - **cgltf + stb_image** — glTF 2.0 loading
@@ -20,7 +20,7 @@ cmake --build build -j
 ./build/examples/gltf_viewer/gltf_viewer
 ```
 
-The first configure downloads SDL3, flecs, Nuklear, cglm, cgltf, stb, and fetches `BoxTextured.glb` into `examples/gltf_viewer/assets/models/`.
+The first configure downloads SDL3, flecs, Nuklear, cglm, cgltf, stb, glslang, and SPIRV-Cross, then fetches `BoxTextured.glb` into `examples/gltf_viewer/assets/models/`.
 
 ## Controls (gltf_viewer demo)
 
@@ -45,7 +45,8 @@ A `.clangd` file at the repo root tells clangd the project is C11. There are no 
 SafiEngine/
 ├── CMakeLists.txt             # top-level, FetchContent, warnings, clangd symlink
 ├── cmake/
-│   ├── Dependencies.cmake     # SDL3, flecs, cglm, cgltf, stb, Nuklear
+│   ├── Dependencies.cmake     # SDL3, flecs, cglm, cgltf, stb, Nuklear, glslang, SPIRV-Cross
+│   ├── SafiShaders.cmake      # safi_compile_shader() — HLSL → SPIR-V + MSL build helper
 │   └── ClangdSetup.cmake      # compile_commands.json symlink + .clangd writer
 ├── engine/
 │   ├── include/safi/          # public C headers (core, ecs, render, input, ui)

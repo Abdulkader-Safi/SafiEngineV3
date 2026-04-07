@@ -15,7 +15,7 @@ SafiEngine is a **pure-C** game engine with **zero manual dependency setup**. Al
 | Concern        | Library                                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------------------- |
 | Window + input | [SDL3](https://github.com/libsdl-org/SDL)                                                               |
-| GPU            | SDL_gpu — first milestone targets Metal on macOS; shaders written in MSL                                |
+| GPU            | SDL_gpu — Metal, Vulkan, D3D12; shaders authored in HLSL, compiled to SPIR-V + MSL at build time        |
 | ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                 |
 | Math           | [cglm](https://github.com/recp/cglm)                                                                    |
 | glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)              |

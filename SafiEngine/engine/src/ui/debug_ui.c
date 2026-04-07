@@ -276,6 +276,10 @@ bool safi_debug_ui_init(SafiRenderer *r) {
      * begin/end bracket. */
     nk_input_begin(&S.ctx);
 
+    /* Enable SDL text input so SDL_EVENT_TEXT_INPUT events are generated.
+     * Without this, Nuklear property widgets cannot accept typed numbers. */
+    SDL_StartTextInput(r->window);
+
     S.initialized = true;
     return true;
 }
@@ -377,7 +381,6 @@ void safi_debug_ui_begin_frame(SafiRenderer *r) {
      * frame is done. Calling nk_input_begin here would reset clicked flags
      * before widgets could read them. */
     nk_input_end(&S.ctx);
-    nk_clear(&S.ctx);
 }
 
 /* Convert widgets → vertices/indices, upload to GPU. Runs a copy pass; must
@@ -497,4 +500,8 @@ void safi_debug_ui_render(SafiRenderer *r) {
 /* Expose the context to examples that want to add widgets. */
 struct nk_context *safi_debug_ui_context(void) {
     return S.initialized ? &S.ctx : NULL;
+}
+
+bool safi_debug_ui_wants_input(void) {
+    return S.initialized && nk_item_is_any_active(&S.ctx);
 }
