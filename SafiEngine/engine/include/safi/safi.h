@@ -21,6 +21,7 @@
 #include "safi/render/material.h"
 #include "safi/render/shader.h"
 #include "safi/render/gltf_loader.h"
+#include "safi/render/model.h"
 
 #include "safi/ui/debug_ui.h"
 

@@ -31,8 +31,7 @@
 #include <string.h>
 
 typedef struct DemoState {
-    SafiMesh      mesh;
-    SafiMaterial  material;
+    SafiModel     model;
     ecs_entity_t  model_entity;
     ecs_entity_t  camera_entity;
 } DemoState;
@@ -220,24 +219,7 @@ static void render_system(ecs_iter_t *it) {
     SDL_Rect full = { 0, 0, (int)r->swapchain_w, (int)r->swapchain_h };
     SDL_SetGPUScissor(r->pass, &full);
 
-    SDL_BindGPUGraphicsPipeline(r->pass, g_demo.material.pipeline);
-    SDL_GPUBufferBinding vbind = { .buffer = g_demo.mesh.vbo, .offset = 0 };
-    SDL_BindGPUVertexBuffers(r->pass, 0, &vbind, 1);
-    SDL_GPUBufferBinding ibind = { .buffer = g_demo.mesh.ibo, .offset = 0 };
-    SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-
-    /* Vertex uniform slot 0 -> SDL_GPU vertex UBO slot 0. See unlit.hlsl. */
-    SDL_PushGPUVertexUniformData(r->cmd, 0, &mvp, sizeof(mvp));
-
-    if (g_demo.material.base_color) {
-        SDL_GPUTextureSamplerBinding sbind = {
-            .texture = g_demo.material.base_color,
-            .sampler = g_demo.material.sampler,
-        };
-        SDL_BindGPUFragmentSamplers(r->pass, 0, &sbind, 1);
-    }
-
-    SDL_DrawGPUIndexedPrimitives(r->pass, g_demo.mesh.index_count, 1, 0, 0, 0);
+    safi_model_draw(r, &g_demo.model, (const float *)mvp);
 
     if (a->debug_ui_enabled) safi_debug_ui_render(r);
 
@@ -265,19 +247,16 @@ int main(int argc, char **argv) {
 
     ecs_world_t *world = safi_app_world(&app);
 
-    /* Load the demo material + glTF model. Compiled shaders live in the
-     * build tree at SAFI_DEMO_SHADER_DIR (see examples/gltf_viewer/CMakeLists.txt);
+    /* Load the glTF model with all primitives and per-material textures.
+     * Compiled shaders live in SAFI_DEMO_SHADER_DIR (see CMakeLists.txt);
      * the loader picks .spv or .msl based on the active GPU backend. */
     char model_path[1024];
-    snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
+    // snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
+    snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
 
-    if (!safi_material_create_unlit(&app.renderer, &g_demo.material, SAFI_DEMO_SHADER_DIR)) {
-        SAFI_LOG_ERROR("failed to build unlit material");
-        return 2;
-    }
-    if (!safi_gltf_load(&app.renderer, model_path, &g_demo.mesh, &g_demo.material)) {
+    if (!safi_model_load(&app.renderer, model_path, SAFI_DEMO_SHADER_DIR, &g_demo.model)) {
         SAFI_LOG_ERROR("failed to load %s", model_path);
-        return 3;
+        return 2;
     }
 
     /* Spawn the model entity. */
@@ -287,11 +266,7 @@ int main(int argc, char **argv) {
         .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
         .scale    = {1.0f, 1.0f, 1.0f},
     });
-    ecs_set(world, g_demo.model_entity, SafiMeshRenderer, {
-        .mesh     = &g_demo.mesh,
-        .material = &g_demo.material,
-    });
-    ecs_set(world, g_demo.model_entity, SafiName, { .value = "BoxTextured" });
+    ecs_set(world, g_demo.model_entity, SafiName, { .value = "Model" });
 
     /* Spawn the camera. */
     g_demo.camera_entity = ecs_new(world);
@@ -318,8 +293,7 @@ int main(int argc, char **argv) {
 
     safi_app_run(&app);
 
-    safi_material_destroy(&app.renderer, &g_demo.material);
-    safi_mesh_destroy(&app.renderer, &g_demo.mesh);
+    safi_model_destroy(&app.renderer, &g_demo.model);
     safi_app_shutdown(&app);
     return 0;
 }
