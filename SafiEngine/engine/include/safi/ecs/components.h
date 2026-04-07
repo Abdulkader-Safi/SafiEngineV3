@@ -62,6 +62,49 @@ typedef struct SafiSpin {
     float speed;   /* radians per second */
 } SafiSpin;
 
+/* ---- Lights ------------------------------------------------------------- */
+
+/* Infinite-distance parallel light (sunlight). */
+typedef struct SafiDirectionalLight {
+    float direction[3];   /* world-space, normalized */
+    float intensity;
+    float color[3];
+    float _pad0;
+} SafiDirectionalLight;
+
+/* Omni-directional point light (bulb). Position from SafiTransform. */
+typedef struct SafiPointLight {
+    float color[3];
+    float intensity;
+    float range;          /* attenuation radius */
+    float _pad0[3];
+} SafiPointLight;
+
+/* Cone-shaped spotlight. Position/direction from SafiTransform. */
+typedef struct SafiSpotLight {
+    float color[3];
+    float intensity;
+    float range;
+    float inner_angle;    /* cosine of half-angle */
+    float outer_angle;    /* cosine of half-angle */
+    float _pad0;
+} SafiSpotLight;
+
+/* Rectangular area light (panel). Position/orientation from SafiTransform. */
+typedef struct SafiRectLight {
+    float color[3];
+    float intensity;
+    float width;
+    float height;
+    float _pad0[2];
+} SafiRectLight;
+
+/* Uniform ambient environment light (sky). */
+typedef struct SafiSkyLight {
+    float color[3];
+    float intensity;
+} SafiSkyLight;
+
 /* ---- Component declarations (defined in engine/src/ecs/components.c) ---- */
 extern ECS_COMPONENT_DECLARE(SafiTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
@@ -70,6 +113,11 @@ extern ECS_COMPONENT_DECLARE(SafiName);
 extern ECS_COMPONENT_DECLARE(SafiSpin);
 extern ECS_COMPONENT_DECLARE(SafiTime);
 extern ECS_COMPONENT_DECLARE(SafiInput);
+extern ECS_COMPONENT_DECLARE(SafiDirectionalLight);
+extern ECS_COMPONENT_DECLARE(SafiPointLight);
+extern ECS_COMPONENT_DECLARE(SafiSpotLight);
+extern ECS_COMPONENT_DECLARE(SafiRectLight);
+extern ECS_COMPONENT_DECLARE(SafiSkyLight);
 
 /* Registers every stock component with the given world. Called by
  * safi_ecs_create(); exposed here for users who bring their own world. */

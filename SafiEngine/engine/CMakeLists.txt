@@ -54,6 +54,17 @@ safi_compile_shader(
     TARGET_VAR _nuklear_shader_target
 )
 add_dependencies(safi_engine ${_nuklear_shader_target})
+
+safi_compile_shader(
+    NAME       lit
+    SOURCE     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/lit.hlsl"
+    OUTPUT_DIR "${_engine_shader_out}"
+    STAGES     vert frag
+    ENTRY_VERT vs_main
+    ENTRY_FRAG fs_main
+    TARGET_VAR _lit_shader_target
+)
+add_dependencies(safi_engine ${_lit_shader_target})
 target_compile_definitions(safi_engine PRIVATE
     SAFI_ENGINE_SHADER_DIR="${_engine_shader_out}"
 )

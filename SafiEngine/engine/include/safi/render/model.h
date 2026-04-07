@@ -19,6 +19,7 @@
 #include <SDL3/SDL_gpu.h>
 
 #include "safi/render/renderer.h"
+#include "safi/render/light_buffer.h"
 
 typedef struct SafiModelPrimitive {
     uint32_t index_offset;     /* first index (element offset, not bytes) */
@@ -62,6 +63,21 @@ bool safi_model_load(SafiRenderer *r,
 void safi_model_draw(SafiRenderer    *r,
                      const SafiModel *model,
                      const float     *mvp);  /* mat4, 16 floats */
+
+/* Load a glTF file with the Blinn-Phong lit pipeline. Same as
+ * safi_model_load() but creates a lit graphics pipeline instead of unlit. */
+bool safi_model_load_lit(SafiRenderer *r,
+                         const char   *path,
+                         const char   *shader_dir,
+                         SafiModel    *out);
+
+/* Draw all primitives with lit shading. Must be called inside an active
+ * render pass. Pushes camera + light uniform data to the fragment shader. */
+void safi_model_draw_lit(SafiRenderer            *r,
+                         const SafiModel          *model,
+                         const SafiLitVSUniforms  *vs_uniforms,
+                         const SafiCameraBuffer   *camera,
+                         const SafiLightBuffer    *lights);
 
 void safi_model_destroy(SafiRenderer *r, SafiModel *model);
 

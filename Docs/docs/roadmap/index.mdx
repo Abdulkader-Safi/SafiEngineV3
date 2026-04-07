@@ -67,7 +67,8 @@ Status of every engine subsystem as of the latest audit (April 2026).
 | Shader/material abstraction           | **Partial**     | [Material](/api/render/material)        |
 | Culling (back-face)                   | **Partial**     | [Material](/api/render/material)        |
 | Opaque pass                           | **Partial**     | [Render Overview](/api/render/overview) |
-| PBR / lit material                    | **WIP**         | [Material](/api/render/material)        |
+| Blinn-Phong lit material              | **Implemented** | [Lighting](/api/render/lighting)        |
+| PBR material                          | **WIP**         | [Material](/api/render/material)        |
 | Alpha modes / blending                | **WIP**         | [Material](/api/render/material)        |
 | Double-sided flag                     | **WIP**         | [Material](/api/render/material)        |
 | Render extraction                     | **WIP**         | [Render Overview](/api/render/overview) |
@@ -77,13 +78,18 @@ Status of every engine subsystem as of the latest audit (April 2026).
 
 ## Lighting
 
-| Feature               | Status  | API Page                         |
-| --------------------- | ------- | -------------------------------- |
-| Directional light     | **WIP** | [Lighting](/api/render/lighting) |
-| Point light           | **WIP** | [Lighting](/api/render/lighting) |
-| Ambient light         | **WIP** | [Lighting](/api/render/lighting) |
-| Light uniform buffers | **WIP** | [Lighting](/api/render/lighting) |
-| Lit shading path      | **WIP** | [Lighting](/api/render/lighting) |
+| Feature               | Status          | API Page                         |
+| --------------------- | --------------- | -------------------------------- |
+| Directional light     | **Implemented** | [Lighting](/api/render/lighting) |
+| Point light           | **Implemented** | [Lighting](/api/render/lighting) |
+| Spot light            | **Implemented** | [Lighting](/api/render/lighting) |
+| Rect light (area)     | **Implemented** | [Lighting](/api/render/lighting) |
+| Sky light (ambient)   | **Implemented** | [Lighting](/api/render/lighting) |
+| Light uniform buffers | **Implemented** | [Lighting](/api/render/lighting) |
+| Lit shading path      | **Implemented** | [Lighting](/api/render/lighting) |
+| Shadow mapping        | **WIP**         | [Lighting](/api/render/lighting) |
+| Light baking          | **WIP**         | [Lighting](/api/render/lighting) |
+| PBR (Cook-Torrance)   | **WIP**         | [Lighting](/api/render/lighting) |
 
 ## Assets
 
@@ -119,14 +125,14 @@ Status of every engine subsystem as of the latest audit (April 2026).
 
 ## Debug UI
 
-| Feature                                                      | Status          | API Page                     |
-| ------------------------------------------------------------ | --------------- | ---------------------------- |
-| Nuklear backend (SDL_gpu)                                    | **Implemented** | [Debug UI](/api/ui/debug_ui) |
-| Scene hierarchy panel                                        | **Implemented** | [Debug UI](/api/ui/debug_ui) |
-| Inspector panel                                              | **Implemented** | [Debug UI](/api/ui/debug_ui) |
-| Entity selection                                             | **Implemented** | [Debug UI](/api/ui/debug_ui) |
-| Component inspection (Transform, Camera, MeshRenderer, Spin) | **Implemented** | [Debug UI](/api/ui/debug_ui) |
-| Custom widget support                                        | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Feature                                                              | Status          | API Page                     |
+| -------------------------------------------------------------------- | --------------- | ---------------------------- |
+| Nuklear backend (SDL_gpu)                                            | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Scene hierarchy panel                                                | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Inspector panel                                                      | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Entity selection                                                     | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Component inspection (Transform, Camera, MeshRenderer, Spin, Lights) | **Implemented** | [Debug UI](/api/ui/debug_ui) |
+| Custom widget support                                                | **Implemented** | [Debug UI](/api/ui/debug_ui) |
 
 ## Physics & Collision
 

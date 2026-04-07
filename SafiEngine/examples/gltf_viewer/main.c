@@ -22,6 +22,8 @@ typedef struct DemoState {
     SafiModel     model;
     ecs_entity_t  model_entity;
     ecs_entity_t  camera_entity;
+    ecs_entity_t  sun_entity;
+    ecs_entity_t  sky_entity;
 } DemoState;
 
 static DemoState g_demo;
@@ -104,34 +106,47 @@ static void render_system(ecs_iter_t *it) {
         safi_debug_ui_prepare(r);
     }
 
-    /* ---- Main render pass --------------------------------------------- */
-    safi_renderer_begin_main_pass(r);
-
-    mat4 view, proj, model, mvp;
+    /* ---- Build matrices ------------------------------------------------- */
+    mat4 view, proj, model_mat, mvp;
     vec3 eye = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
     vec3 center = { 0, 0, 0 };
     vec3 up = { 0, 1, 0 };
     glm_lookat(eye, center, up, view);
 
     float aspect = (float)r->swapchain_w / (float)r->swapchain_h;
-    /* cglm is built with CGLM_FORCE_DEPTH_ZERO_TO_ONE (see cmake/
-     * Dependencies.cmake) so glm_perspective emits the [0,1] clip-space Z
-     * that SDL_gpu expects on Metal / Vulkan / D3D12. */
     glm_perspective(cam->fov_y_radians, aspect, cam->z_near, cam->z_far, proj);
 
-    glm_mat4_identity(model);
-    glm_translate(model, xf->position);
+    glm_mat4_identity(model_mat);
+    glm_translate(model_mat, xf->position);
     mat4 rot;
     glm_quat_mat4(xf->rotation, rot);
-    glm_mat4_mul(model, rot, model);
-    glm_scale(model, xf->scale);
+    glm_mat4_mul(model_mat, rot, model_mat);
+    glm_scale(model_mat, xf->scale);
 
     glm_mat4_mul(proj, view, mvp);
-    glm_mat4_mul(mvp, model, mvp);
+    glm_mat4_mul(mvp, model_mat, mvp);
 
-    /* Reset viewport + scissor to the full target. Safer than assuming
-     * SDL_gpu inherited defaults; also resets anything Nuklear left behind
-     * in the previous frame's pass. */
+    /* ---- Collect lights from ECS --------------------------------------- */
+    SafiLightBuffer light_buf;
+    safi_light_buffer_collect(it->world, &light_buf);
+
+    /* ---- Build GPU uniform structs ------------------------------------ */
+    SafiLitVSUniforms vs_buf;
+    memcpy(vs_buf.model, model_mat, sizeof(model_mat));
+    memcpy(vs_buf.mvp, mvp, sizeof(mvp));
+    safi_compute_normal_matrix((const float *)model_mat, vs_buf.normal_mat);
+
+    SafiCameraBuffer cam_buf;
+    memcpy(cam_buf.view, view, sizeof(view));
+    memcpy(cam_buf.proj, proj, sizeof(proj));
+    cam_buf.eye_pos[0] = eye[0];
+    cam_buf.eye_pos[1] = eye[1];
+    cam_buf.eye_pos[2] = eye[2];
+    cam_buf._pad = 0.0f;
+
+    /* ---- Main render pass --------------------------------------------- */
+    safi_renderer_begin_main_pass(r);
+
     SDL_GPUViewport vp = {
         .x = 0.0f, .y = 0.0f,
         .w = (float)r->swapchain_w, .h = (float)r->swapchain_h,
@@ -141,7 +156,7 @@ static void render_system(ecs_iter_t *it) {
     SDL_Rect full = { 0, 0, (int)r->swapchain_w, (int)r->swapchain_h };
     SDL_SetGPUScissor(r->pass, &full);
 
-    safi_model_draw(r, &g_demo.model, (const float *)mvp);
+    safi_model_draw_lit(r, &g_demo.model, &vs_buf, &cam_buf, &light_buf);
 
     if (a->debug_ui_enabled) safi_debug_ui_render(r);
 
@@ -176,7 +191,7 @@ int main(int argc, char **argv) {
     snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
     // snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
 
-    if (!safi_model_load(&app.renderer, model_path, SAFI_DEMO_SHADER_DIR, &g_demo.model)) {
+    if (!safi_model_load_lit(&app.renderer, model_path, SAFI_DEMO_SHADER_DIR, &g_demo.model)) {
         SAFI_LOG_ERROR("failed to load %s", model_path);
         return 2;
     }
@@ -199,6 +214,23 @@ int main(int argc, char **argv) {
         .target        = {0, 0, 0},
     });
     ecs_set(world, g_demo.camera_entity, SafiName, { .value = "Camera" });
+
+    /* Spawn a directional light (sun). */
+    g_demo.sun_entity = ecs_new(world);
+    ecs_set(world, g_demo.sun_entity, SafiDirectionalLight, {
+        .direction = {-0.3f, -0.8f, -0.5f},
+        .color     = {1.0f, 1.0f, 0.9f},
+        .intensity = 1.2f,
+    });
+    ecs_set(world, g_demo.sun_entity, SafiName, { .value = "Sun" });
+
+    /* Spawn a sky light (ambient). */
+    g_demo.sky_entity = ecs_new(world);
+    ecs_set(world, g_demo.sky_entity, SafiSkyLight, {
+        .color     = {0.25f, 0.28f, 0.35f},
+        .intensity = 1.0f,
+    });
+    ecs_set(world, g_demo.sky_entity, SafiName, { .value = "Sky" });
 
     /* Default selection for the inspector. */
     safi_debug_ui_select_entity(g_demo.model_entity);

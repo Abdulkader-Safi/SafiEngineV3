@@ -1,34 +1,211 @@
 ---
 title: Lighting
-description: Directional, point, and ambient lights — not yet implemented.
+description: Blinn-Phong lighting with directional, point, spot, rect, and sky lights.
 ---
 
 # Lighting
 
-:::warning WIP — Not yet implemented
-The engine currently has only an unlit rendering path (`unlit.hlsl`). No light components, uniform buffers, or lit shading pipelines exist yet.
-:::
+The engine provides a Blinn-Phong lighting pipeline supporting five light types. Lights are ECS components collected each frame into a GPU uniform buffer and consumed by the `lit.hlsl` shader.
 
-## Planned features
+## Light types
 
-### Directional light
+### SafiDirectionalLight
 
-A `SafiDirectionalLight` component with direction, color, and intensity. One or more directional lights would be gathered per frame and sent to the shader as a uniform buffer.
+Infinite-distance parallel light (sunlight). Does not require a `SafiTransform`.
 
-### Point light
+```c
+typedef struct SafiDirectionalLight {
+    float direction[3];   /* world-space, normalized */
+    float intensity;
+    float color[3];
+    float _pad0;
+} SafiDirectionalLight;
+```
 
-A `SafiPointLight` component with position, color, intensity, and attenuation range. The engine would support multiple point lights per scene with a light-count uniform.
+**Usage:**
 
-### Ambient light
+```c
+ecs_entity_t sun = ecs_new(world);
+ecs_set(world, sun, SafiDirectionalLight, {
+    .direction = {-0.3f, -0.8f, -0.5f},
+    .color     = {1.0f, 1.0f, 0.9f},
+    .intensity = 1.2f,
+});
+```
 
-A singleton resource (`SafiAmbientLight`) providing a base illumination color so objects are never fully black in shadow.
+### SafiPointLight
 
-### Lit shading path
+Omni-directional point light (bulb). Position comes from `SafiTransform`.
 
-A PBR or Blinn-Phong shader that reads light uniforms and computes diffuse + specular contributions. This requires:
-- A per-frame light buffer uploaded alongside the camera buffer
-- Normal-mapped geometry (vertex normals already exist in `SafiVertex`)
-- A new `safi_material_create_lit` pipeline alongside the existing unlit path
+```c
+typedef struct SafiPointLight {
+    float color[3];
+    float intensity;
+    float range;          /* attenuation radius */
+    float _pad0[3];
+} SafiPointLight;
+```
+
+**Usage:**
+
+```c
+ecs_entity_t bulb = ecs_new(world);
+ecs_set(world, bulb, SafiTransform, {
+    .position = {2.0f, 3.0f, 0.0f},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {1, 1, 1},
+});
+ecs_set(world, bulb, SafiPointLight, {
+    .color     = {1.0f, 0.8f, 0.6f},
+    .intensity = 2.0f,
+    .range     = 10.0f,
+});
+```
+
+### SafiSpotLight
+
+Cone-shaped spotlight. Position and direction come from `SafiTransform` (forward = rotated `-Z`).
+
+```c
+typedef struct SafiSpotLight {
+    float color[3];
+    float intensity;
+    float range;
+    float inner_angle;    /* cosine of inner half-angle */
+    float outer_angle;    /* cosine of outer half-angle */
+    float _pad0;
+} SafiSpotLight;
+```
+
+The cone is defined by cosine values: `inner_angle` is the cosine of the inner cone half-angle (full brightness), `outer_angle` is the cosine of the outer cone half-angle (falloff to zero). Light smoothly interpolates between the two via `smoothstep`.
+
+### SafiRectLight
+
+Rectangular area light (panel). Position and orientation come from `SafiTransform`.
+
+```c
+typedef struct SafiRectLight {
+    float color[3];
+    float intensity;
+    float width;
+    float height;
+    float _pad0[2];
+} SafiRectLight;
+```
+
+Uses a representative-point approximation: the fragment position is projected onto the rectangle's plane and clamped to bounds, then treated as a point light source. This produces soft, area-like falloff without Monte Carlo sampling.
+
+### SafiSkyLight
+
+Uniform ambient environment light. Provides a base illumination so geometry is never fully black.
+
+```c
+typedef struct SafiSkyLight {
+    float color[3];
+    float intensity;
+} SafiSkyLight;
+```
+
+Only the first `SafiSkyLight` entity is used. It sets the `ambient_color` and `ambient_intensity` fields in the light buffer rather than occupying a light slot.
+
+## Architecture
+
+### Per-frame light collection
+
+```c
+SafiLightBuffer light_buf;
+safi_light_buffer_collect(world, &light_buf);
+```
+
+`safi_light_buffer_collect()` queries the ECS world for all light entities, reads their component data (and `SafiTransform` where applicable), and packs them into a `SafiLightBuffer` struct ready for GPU upload. Up to **16 lights** are supported per frame (`SAFI_MAX_LIGHTS`).
+
+### GPU uniform layout
+
+The light data is uploaded via `SDL_PushGPUFragmentUniformData` as two uniform buffers:
+
+| Slot | Register     | Struct             | Contents                                                  |
+| ---- | ------------ | ------------------ | --------------------------------------------------------- |
+| 0    | `b0, space2` | `SafiCameraBuffer` | view matrix, projection matrix, eye position              |
+| 1    | `b1, space2` | `SafiLightBuffer`  | 16 × `SafiGPULight` (64 bytes each), ambient, light count |
+
+The vertex shader receives a single uniform buffer at `b0, space1` containing the model matrix, MVP matrix, and normal matrix (`SafiLitVSUniforms`).
+
+Each `SafiGPULight` is 64 bytes (4 × `float4`) containing position, direction, color, intensity, range, cone angles, rect dimensions, and a `type` discriminator.
+
+### Shading model
+
+The `lit.hlsl` fragment shader implements Blinn-Phong:
+
+- **Diffuse:** `max(0, dot(N, L))`
+- **Specular:** `pow(max(0, dot(N, H)), 32) × 0.5` where `H = normalize(L + V)`
+- **Attenuation (point/spot/rect):** `saturate(1 - (dist/range)²)²`
+- **Spot cone:** `smoothstep(outer_angle, inner_angle, dot(-L, spot_dir))`
+- **Ambient:** `ambient_color × ambient_intensity` added after all light contributions
+
+The architecture is designed for a future PBR upgrade: the `SafiLightBuffer` layout is shading-model-agnostic — only the shader needs to change.
+
+## API reference
+
+### Material
+
+```c
+bool safi_material_create_lit(SafiRenderer *r,
+                              SafiMaterial *out,
+                              const char   *shader_dir);
+```
+
+Creates a lit graphics pipeline. Same vertex layout as `safi_material_create_unlit` but with additional fragment uniform buffer slots for camera and light data. Uses back-face culling.
+
+### Model loading
+
+```c
+bool safi_model_load_lit(SafiRenderer *r,
+                         const char   *path,
+                         const char   *shader_dir,
+                         SafiModel    *out);
+```
+
+Loads a glTF file with the lit pipeline. Internally calls `safi_model_load()` for geometry and textures, then swaps the unlit pipeline for a lit one.
+
+### Drawing
+
+```c
+void safi_model_draw_lit(SafiRenderer            *r,
+                         const SafiModel          *model,
+                         const SafiLitVSUniforms  *vs_uniforms,
+                         const SafiCameraBuffer   *camera,
+                         const SafiLightBuffer    *lights);
+```
+
+Draws all primitives with lit shading. Must be called inside an active render pass. Pushes vertex uniforms (model + MVP + normal matrix), camera buffer, and light buffer before issuing draw calls.
+
+### Normal matrix helper
+
+```c
+static inline void safi_compute_normal_matrix(const float *model4x4,
+                                              float       *out16);
+```
+
+Computes the inverse-transpose of the model matrix and stores it as a `float4x4` for HLSL compatibility. Defined in `light_buffer.h`.
+
+## Inspector
+
+All five light components are editable in the Nuklear debug UI inspector. Select a light entity in the Scene panel to view and modify its properties in real time.
+
+## Limits
+
+| Limit                | Value                  |
+| -------------------- | ---------------------- |
+| Max lights per frame | 16 (`SAFI_MAX_LIGHTS`) |
+| Max sky lights       | 1 (first found used)   |
+| Light buffer size    | 1056 bytes             |
+
+## Future work
+
+- **PBR (Cook-Torrance):** Replace Blinn-Phong shader; light buffer unchanged
+- **Shadow mapping:** Cascaded shadow maps for directional, cubemap for point, standard for spot
+- **Light baking:** Lightmaps and irradiance probes for static lights
+- **Light culling:** Per-tile or clustered culling for scenes exceeding 16 lights
 
 ## See also
 

@@ -233,6 +233,95 @@ static SDL_GPUTexture *s_load_material_texture(SafiRenderer         *r,
     return s_upload_rgba8(r, rgba, 1, 1);
 }
 
+/* ---- lit pipeline creation ----------------------------------------------- */
+
+static bool s_create_pipeline_lit(SafiRenderer *r, const char *shader_dir,
+                                  SafiModel *out) {
+    SDL_GPUShader *vs = safi_shader_load(r, shader_dir, "lit", "vs_main",
+                                         SAFI_SHADER_STAGE_VERTEX, 0, 1, 0, 0);
+    SDL_GPUShader *fs = safi_shader_load(r, shader_dir, "lit", "fs_main",
+                                         SAFI_SHADER_STAGE_FRAGMENT, 1, 2, 0, 0);
+    if (!vs || !fs) {
+        if (vs) SDL_ReleaseGPUShader(r->device, vs);
+        if (fs) SDL_ReleaseGPUShader(r->device, fs);
+        return false;
+    }
+
+    SDL_GPUVertexBufferDescription vbd = {
+        .slot              = 0,
+        .pitch             = sizeof(SafiVertex),
+        .input_rate        = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+    };
+    SDL_GPUVertexAttribute attrs[3] = {
+        { .buffer_slot = 0, .location = 0,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+          .offset = offsetof(SafiVertex, position) },
+        { .buffer_slot = 0, .location = 1,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+          .offset = offsetof(SafiVertex, normal) },
+        { .buffer_slot = 0, .location = 2,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+          .offset = offsetof(SafiVertex, uv) },
+    };
+
+    SDL_GPUColorTargetDescription color_desc = {
+        .format = r->swapchain_format,
+        .blend_state = { .enable_blend = false },
+    };
+
+    SDL_GPUGraphicsPipelineCreateInfo pci = {
+        .vertex_shader   = vs,
+        .fragment_shader = fs,
+        .vertex_input_state = {
+            .vertex_buffer_descriptions = &vbd,
+            .num_vertex_buffers         = 1,
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 3,
+        },
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = {
+            .fill_mode  = SDL_GPU_FILLMODE_FILL,
+            .cull_mode  = SDL_GPU_CULLMODE_BACK,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+        },
+        .multisample_state = { .sample_count = SDL_GPU_SAMPLECOUNT_1 },
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = true,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS,
+        },
+        .target_info = {
+            .color_target_descriptions = &color_desc,
+            .num_color_targets         = 1,
+            .depth_stencil_format      = r->depth_format,
+            .has_depth_stencil_target  = true,
+        },
+    };
+
+    out->pipeline = SDL_CreateGPUGraphicsPipeline(r->device, &pci);
+    SDL_ReleaseGPUShader(r->device, vs);
+    SDL_ReleaseGPUShader(r->device, fs);
+    if (!out->pipeline) {
+        SAFI_LOG_ERROR("lit model pipeline create failed: %s", SDL_GetError());
+        return false;
+    }
+
+    SDL_GPUSamplerCreateInfo si = {
+        .min_filter     = SDL_GPU_FILTER_LINEAR,
+        .mag_filter     = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    };
+    out->sampler = SDL_CreateGPUSampler(r->device, &si);
+    if (!out->sampler) return false;
+
+    static const uint8_t white[4] = { 255, 255, 255, 255 };
+    out->white_fallback = s_upload_rgba8(r, white, 1, 1);
+    return out->white_fallback != NULL;
+}
+
 /* ---- public API --------------------------------------------------------- */
 
 bool safi_model_load(SafiRenderer *r,
@@ -445,6 +534,70 @@ void safi_model_draw(SafiRenderer    *r,
     SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
     SDL_PushGPUVertexUniformData(r->cmd, 0, mvp, 64);
+
+    for (uint32_t i = 0; i < m->primitive_count; i++) {
+        const SafiModelPrimitive *p = &m->primitives[i];
+        SDL_GPUTexture *tex = (p->material_index < m->material_count)
+            ? m->base_colors[p->material_index]
+            : NULL;
+        if (!tex) tex = m->white_fallback;
+
+        SDL_GPUTextureSamplerBinding sb = { .texture = tex, .sampler = m->sampler };
+        SDL_BindGPUFragmentSamplers(r->pass, 0, &sb, 1);
+
+        SDL_DrawGPUIndexedPrimitives(r->pass, p->index_count, 1,
+                                      p->index_offset, 0, 0);
+    }
+}
+
+bool safi_model_load_lit(SafiRenderer *r,
+                         const char   *path,
+                         const char   *shader_dir,
+                         SafiModel    *out) {
+    /* Reuse the standard loader for geometry + textures but swap the pipeline. */
+    if (!safi_model_load(r, path, shader_dir, out)) return false;
+
+    /* Release the unlit pipeline and create a lit one instead. */
+    if (out->pipeline) {
+        SDL_ReleaseGPUGraphicsPipeline(r->device, out->pipeline);
+        out->pipeline = NULL;
+    }
+    if (out->sampler) {
+        SDL_ReleaseGPUSampler(r->device, out->sampler);
+        out->sampler = NULL;
+    }
+    if (out->white_fallback) {
+        SDL_ReleaseGPUTexture(r->device, out->white_fallback);
+        out->white_fallback = NULL;
+    }
+
+    if (!s_create_pipeline_lit(r, shader_dir, out)) {
+        safi_model_destroy(r, out);
+        return false;
+    }
+    return true;
+}
+
+void safi_model_draw_lit(SafiRenderer            *r,
+                         const SafiModel          *m,
+                         const SafiLitVSUniforms  *vs_uniforms,
+                         const SafiCameraBuffer   *camera,
+                         const SafiLightBuffer    *lights) {
+    SDL_BindGPUGraphicsPipeline(r->pass, m->pipeline);
+
+    SDL_GPUBufferBinding vbind = { .buffer = m->vbo, .offset = 0 };
+    SDL_BindGPUVertexBuffers(r->pass, 0, &vbind, 1);
+    SDL_GPUBufferBinding ibind = { .buffer = m->ibo, .offset = 0 };
+    SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+    /* Vertex uniform slot 0: model + mvp + normal_mat */
+    SDL_PushGPUVertexUniformData(r->cmd, 0, vs_uniforms, sizeof(*vs_uniforms));
+
+    /* Fragment uniform slot 0: camera buffer */
+    SDL_PushGPUFragmentUniformData(r->cmd, 0, camera, sizeof(*camera));
+
+    /* Fragment uniform slot 1: light buffer */
+    SDL_PushGPUFragmentUniformData(r->cmd, 1, lights, sizeof(*lights));
 
     for (uint32_t i = 0; i < m->primitive_count; i++) {
         const SafiModelPrimitive *p = &m->primitives[i];

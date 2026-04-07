@@ -27,6 +27,12 @@ bool safi_material_create_unlit(SafiRenderer *r,
                                 SafiMaterial *out,
                                 const char   *shader_dir);
 
+/* Build the Blinn-Phong lit pipeline. Same vertex layout as unlit but the
+ * shaders receive additional uniform buffers for camera and light data. */
+bool safi_material_create_lit(SafiRenderer *r,
+                              SafiMaterial *out,
+                              const char   *shader_dir);
+
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m);
 
 /* Set the base color texture + size in pixels (RGBA8). Replaces any

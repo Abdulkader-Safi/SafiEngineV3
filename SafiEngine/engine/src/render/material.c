@@ -107,6 +107,103 @@ bool safi_material_create_unlit(SafiRenderer *r,
     return true;
 }
 
+bool safi_material_create_lit(SafiRenderer *r,
+                              SafiMaterial *out,
+                              const char   *shader_dir) {
+    memset(out, 0, sizeof(*out));
+
+    /* VS: 0 samplers, 1 uniform buffer (model+mvp+normal_mat), 0 storage */
+    SDL_GPUShader *vs = safi_shader_load(r, shader_dir, "lit", "vs_main",
+                                         SAFI_SHADER_STAGE_VERTEX,
+                                         0, 1, 0, 0);
+    /* FS: 1 sampler, 2 uniform buffers (camera + lights), 0 storage */
+    SDL_GPUShader *fs = safi_shader_load(r, shader_dir, "lit", "fs_main",
+                                         SAFI_SHADER_STAGE_FRAGMENT,
+                                         1, 2, 0, 0);
+    if (!vs || !fs) {
+        if (vs) SDL_ReleaseGPUShader(r->device, vs);
+        if (fs) SDL_ReleaseGPUShader(r->device, fs);
+        return false;
+    }
+
+    SDL_GPUVertexBufferDescription vbd = {
+        .slot              = 0,
+        .pitch             = sizeof(SafiVertex),
+        .input_rate        = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+        .instance_step_rate = 0,
+    };
+    SDL_GPUVertexAttribute attrs[3] = {
+        { .buffer_slot = 0, .location = 0,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+          .offset = offsetof(SafiVertex, position) },
+        { .buffer_slot = 0, .location = 1,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+          .offset = offsetof(SafiVertex, normal) },
+        { .buffer_slot = 0, .location = 2,
+          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+          .offset = offsetof(SafiVertex, uv) },
+    };
+
+    SDL_GPUColorTargetDescription color_desc = {
+        .format = r->swapchain_format,
+        .blend_state = {
+            .enable_blend = false,
+        },
+    };
+
+    SDL_GPUGraphicsPipelineCreateInfo pci = {
+        .vertex_shader   = vs,
+        .fragment_shader = fs,
+        .vertex_input_state = {
+            .vertex_buffer_descriptions = &vbd,
+            .num_vertex_buffers         = 1,
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 3,
+        },
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = {
+            .fill_mode  = SDL_GPU_FILLMODE_FILL,
+            .cull_mode  = SDL_GPU_CULLMODE_BACK,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+        },
+        .multisample_state = { .sample_count = SDL_GPU_SAMPLECOUNT_1 },
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = true,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS,
+        },
+        .target_info = {
+            .color_target_descriptions = &color_desc,
+            .num_color_targets         = 1,
+            .depth_stencil_format      = r->depth_format,
+            .has_depth_stencil_target  = true,
+        },
+    };
+
+    out->pipeline = SDL_CreateGPUGraphicsPipeline(r->device, &pci);
+    SDL_ReleaseGPUShader(r->device, vs);
+    SDL_ReleaseGPUShader(r->device, fs);
+    if (!out->pipeline) {
+        SAFI_LOG_ERROR("lit pipeline create failed: %s", SDL_GetError());
+        return false;
+    }
+
+    SDL_GPUSamplerCreateInfo si = {
+        .min_filter     = SDL_GPU_FILTER_LINEAR,
+        .mag_filter     = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    };
+    out->sampler = SDL_CreateGPUSampler(r->device, &si);
+    if (!out->sampler) return false;
+
+    static const uint8_t white_rgba[4] = { 255, 255, 255, 255 };
+    safi_material_set_base_color_rgba8(r, out, white_rgba, 1, 1);
+    return true;
+}
+
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m) {
     if (!m) return;
     if (m->pipeline)  SDL_ReleaseGPUGraphicsPipeline(r->device, m->pipeline);

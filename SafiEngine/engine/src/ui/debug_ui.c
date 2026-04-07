@@ -689,6 +689,114 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             nk_property_float(ctx, "axis z", -1.0f,
                               &spin->axis[2], 1.0f, 0.1f, 0.01f);
         }
+
+        /* ---- SafiDirectionalLight ------------------------------------ */
+        if (ecs_has(world, S.selected_entity, SafiDirectionalLight)) {
+            SafiDirectionalLight *dl = ecs_get_mut(world, S.selected_entity,
+                                                    SafiDirectionalLight);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Directional Light", NK_TEXT_LEFT);
+            nk_property_float(ctx, "dir x", -1.0f,
+                              &dl->direction[0], 1.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "dir y", -1.0f,
+                              &dl->direction[1], 1.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "dir z", -1.0f,
+                              &dl->direction[2], 1.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "color r", 0.0f,
+                              &dl->color[0], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color g", 0.0f,
+                              &dl->color[1], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color b", 0.0f,
+                              &dl->color[2], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "intensity", 0.0f,
+                              &dl->intensity, 10.0f, 0.1f, 0.01f);
+        }
+
+        /* ---- SafiPointLight ------------------------------------------ */
+        if (ecs_has(world, S.selected_entity, SafiPointLight)) {
+            SafiPointLight *pl = ecs_get_mut(world, S.selected_entity,
+                                              SafiPointLight);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Point Light", NK_TEXT_LEFT);
+            nk_property_float(ctx, "color r", 0.0f,
+                              &pl->color[0], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color g", 0.0f,
+                              &pl->color[1], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color b", 0.0f,
+                              &pl->color[2], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "intensity", 0.0f,
+                              &pl->intensity, 10.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "range", 0.01f,
+                              &pl->range, 1000.0f, 1.0f, 0.1f);
+        }
+
+        /* ---- SafiSpotLight ------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiSpotLight)) {
+            SafiSpotLight *sl = ecs_get_mut(world, S.selected_entity,
+                                             SafiSpotLight);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Spot Light", NK_TEXT_LEFT);
+            nk_property_float(ctx, "color r", 0.0f,
+                              &sl->color[0], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color g", 0.0f,
+                              &sl->color[1], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color b", 0.0f,
+                              &sl->color[2], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "intensity", 0.0f,
+                              &sl->intensity, 10.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "range", 0.01f,
+                              &sl->range, 1000.0f, 1.0f, 0.1f);
+            nk_property_float(ctx, "inner angle", 0.0f,
+                              &sl->inner_angle, 1.0f, 0.01f, 0.005f);
+            nk_property_float(ctx, "outer angle", 0.0f,
+                              &sl->outer_angle, 1.0f, 0.01f, 0.005f);
+        }
+
+        /* ---- SafiRectLight ------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiRectLight)) {
+            SafiRectLight *rl = ecs_get_mut(world, S.selected_entity,
+                                             SafiRectLight);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Rect Light", NK_TEXT_LEFT);
+            nk_property_float(ctx, "color r", 0.0f,
+                              &rl->color[0], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color g", 0.0f,
+                              &rl->color[1], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color b", 0.0f,
+                              &rl->color[2], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "intensity", 0.0f,
+                              &rl->intensity, 10.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "width", 0.01f,
+                              &rl->width, 100.0f, 0.1f, 0.01f);
+            nk_property_float(ctx, "height", 0.01f,
+                              &rl->height, 100.0f, 0.1f, 0.01f);
+        }
+
+        /* ---- SafiSkyLight -------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiSkyLight)) {
+            SafiSkyLight *sk = ecs_get_mut(world, S.selected_entity,
+                                            SafiSkyLight);
+            nk_layout_row_dynamic(ctx, 6, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label(ctx, "Sky Light", NK_TEXT_LEFT);
+            nk_property_float(ctx, "color r", 0.0f,
+                              &sk->color[0], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color g", 0.0f,
+                              &sk->color[1], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "color b", 0.0f,
+                              &sk->color[2], 1.0f, 0.05f, 0.01f);
+            nk_property_float(ctx, "intensity", 0.0f,
+                              &sk->intensity, 10.0f, 0.1f, 0.01f);
+        }
     }
 inspector_end:
     nk_end(ctx);
