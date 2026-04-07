@@ -40,15 +40,10 @@ bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc) {
         return false;
     }
 
-    /* NOTE: SDL_WINDOW_HIGH_PIXEL_DENSITY is intentionally OFF so the
-     * swapchain size in pixels equals the window size in points. That lets
-     * Nuklear (which works in window points, same as SDL mouse events) feed
-     * its vertex coordinates and clip rects directly to the GPU without a
-     * DPI scale. Re-enable once we add a proper DPI scale factor to both
-     * the Nuklear backend's shader uniform and its scissor conversion. */
     r->window = SDL_CreateWindow(desc->title,
                                  desc->width, desc->height,
-                                 SDL_WINDOW_RESIZABLE);
+                                 SDL_WINDOW_RESIZABLE |
+                                 SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!r->window) {
         SAFI_LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
         return false;
@@ -82,6 +77,7 @@ bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc) {
 
     int pw = desc->width, ph = desc->height;
     SDL_GetWindowSizeInPixels(r->window, &pw, &ph);
+    r->dpi_scale = (desc->width > 0) ? (float)pw / (float)desc->width : 1.0f;
     if (!s_create_depth(r, (uint32_t)pw, (uint32_t)ph)) return false;
 
     SAFI_LOG_INFO("SafiRenderer ready — backend: %s",
@@ -124,6 +120,9 @@ bool safi_renderer_begin_frame(SafiRenderer *r) {
 
     if (r->swapchain_w != r->depth_w || r->swapchain_h != r->depth_h) {
         s_create_depth(r, r->swapchain_w, r->swapchain_h);
+        int lw, lh;
+        SDL_GetWindowSize(r->window, &lw, &lh);
+        r->dpi_scale = (lw > 0) ? (float)r->swapchain_w / (float)lw : 1.0f;
     }
 
     r->pass = NULL;

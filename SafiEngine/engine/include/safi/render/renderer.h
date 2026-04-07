@@ -29,6 +29,7 @@ typedef struct SafiRenderer {
     uint32_t              swapchain_h;
     SDL_GPURenderPass    *pass;
     bool                  frame_active;
+    float                 dpi_scale;
 } SafiRenderer;
 
 typedef struct SafiRendererDesc {

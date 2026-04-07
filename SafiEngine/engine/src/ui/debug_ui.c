@@ -83,6 +83,7 @@ static struct {
     uint8_t *ibo_cpu;
 
     ecs_entity_t selected_entity;
+    float        dpi_scale;
 } S;
 
 /* -- helpers --------------------------------------------------------------- */
@@ -257,16 +258,23 @@ bool safi_debug_ui_init(SafiRenderer *r) {
         return false;
     }
 
-    /* Bake the default font into an RGBA32 atlas. */
+    S.dpi_scale = r->dpi_scale;
+
+    /* Bake the default font into an RGBA32 atlas, scaled for HiDPI. */
     nk_font_atlas_init_default(&S.atlas);
     nk_font_atlas_begin(&S.atlas);
-    struct nk_font *font = nk_font_atlas_add_default(&S.atlas, 14.0f, NULL);
+    struct nk_font *font = nk_font_atlas_add_default(&S.atlas,
+                                                      14.0f * S.dpi_scale, NULL);
     int atlas_w, atlas_h;
     const void *pixels = nk_font_atlas_bake(&S.atlas, &atlas_w, &atlas_h, NK_FONT_ATLAS_RGBA32);
     if (!pixels || !s_upload_font_atlas(r, pixels, atlas_w, atlas_h)) return false;
 
     nk_font_atlas_end(&S.atlas, nk_handle_ptr(S.font_tex), &S.null_tex);
     if (S.atlas.default_font) font = S.atlas.default_font;
+    /* The atlas glyphs are baked at pixel size (14 * dpi_scale) for sharp
+     * rendering, but Nuklear layout must use the logical point size so
+     * widgets don't appear oversized. */
+    font->handle.height = 14.0f;
     nk_style_set_font(&S.ctx, &font->handle);
 
     if (!s_create_pipeline(r))       return false;
@@ -455,9 +463,12 @@ void safi_debug_ui_prepare(SafiRenderer *r) {
 void safi_debug_ui_render(SafiRenderer *r) {
     if (!S.initialized || !r->pass) return;
 
-    /* Push viewport size uniform (inv_half_viewport = 2/w, 2/h). */
-    /* Vertex uniform slot 0 -> MSL [[buffer(0)]]. Keep SAFI_NK_SHADER_MSL in sync. */
-    float ubo[2] = { 2.0f / (float)r->swapchain_w, 2.0f / (float)r->swapchain_h };
+    /* Push viewport size uniform (inv_half_viewport = 2/w, 2/h).
+     * Nuklear vertex positions are in logical points, so divide by logical
+     * (not pixel) dimensions to map to NDC. */
+    float lw = (float)r->swapchain_w / S.dpi_scale;
+    float lh = (float)r->swapchain_h / S.dpi_scale;
+    float ubo[2] = { 2.0f / lw, 2.0f / lh };
     SDL_PushGPUVertexUniformData(r->cmd, 0, ubo, sizeof(ubo));
 
     SDL_BindGPUGraphicsPipeline(r->pass, S.pipeline);
@@ -472,12 +483,14 @@ void safi_debug_ui_render(SafiRenderer *r) {
     nk_draw_foreach(cmd, &S.ctx, &S.cmds) {
         if (!cmd->elem_count) continue;
 
-        /* Scissor in pixels — Nuklear's clip_rect is already window-space. */
+        /* Scissor in pixels — Nuklear's clip_rect is in logical points,
+         * scale to pixel coordinates for the GPU. */
+        float sc = S.dpi_scale;
         SDL_Rect scissor = {
-            .x = (int)(cmd->clip_rect.x > 0 ? cmd->clip_rect.x : 0),
-            .y = (int)(cmd->clip_rect.y > 0 ? cmd->clip_rect.y : 0),
-            .w = (int)cmd->clip_rect.w,
-            .h = (int)cmd->clip_rect.h,
+            .x = (int)((cmd->clip_rect.x > 0 ? cmd->clip_rect.x : 0) * sc),
+            .y = (int)((cmd->clip_rect.y > 0 ? cmd->clip_rect.y : 0) * sc),
+            .w = (int)(cmd->clip_rect.w * sc),
+            .h = (int)(cmd->clip_rect.h * sc),
         };
         if (scissor.w < 0) scissor.w = 0;
         if (scissor.h < 0) scissor.h = 0;
@@ -550,7 +563,7 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     nk_end(ctx);
 
     /* ---- Inspector (right side) -------------------------------------- */
-    float insp_x = (float)r->swapchain_w - 320.0f;
+    float insp_x = (float)r->swapchain_w / S.dpi_scale - 320.0f;
     if (insp_x < 240.0f) insp_x = 240.0f;
 
     if (nk_begin(ctx, "Inspector",
