@@ -43,7 +43,7 @@ bool safi_renderer_init(SafiRenderer *r, const SafiRendererDesc *desc);
 void safi_renderer_shutdown(SafiRenderer *r);
 
 /* Acquire the command buffer + swapchain texture for this frame. Does NOT
- * open a render pass — any copy passes (e.g. ImGui vertex upload) must run
+ * open a render pass — any copy passes (e.g. UI vertex upload) must run
  * between this call and safi_renderer_begin_main_pass. Returns false if the
  * swapchain wasn't ready (e.g. window minimized); skip the frame. */
 bool safi_renderer_begin_frame(SafiRenderer *r);

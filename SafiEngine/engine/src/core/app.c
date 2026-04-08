@@ -34,7 +34,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
 
     if (desc->enable_debug_ui) {
         if (!safi_debug_ui_init(&app->renderer)) {
-            SAFI_LOG_WARN("debug UI init failed; continuing without ImGui");
+            SAFI_LOG_WARN("debug UI init failed; continuing without MicroUI");
         } else {
             app->debug_ui_enabled = true;
         }

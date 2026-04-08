@@ -27,7 +27,7 @@ target_link_libraries(safi_engine
         flecs::flecs_static
         cgltf
         stb
-        nuklear
+        microui
     PRIVATE
         safi_warnings
 )
@@ -39,21 +39,21 @@ set_target_properties(safi_engine PROPERTIES
 )
 
 # ---- Engine-owned shaders (HLSL -> SPIR-V + MSL) --------------------------
-# The Nuklear debug UI pipeline uses a shader that ships with the engine
+# The MicroUI debug UI pipeline uses a shader that ships with the engine
 # itself. Compile it via the shared safi_compile_shader() helper, drop the
 # outputs into ${CMAKE_BINARY_DIR}/shaders alongside example shaders, and
 # expose that directory to debug_ui.c via a compile definition.
 set(_engine_shader_out "${CMAKE_BINARY_DIR}/shaders")
 safi_compile_shader(
-    NAME       nuklear
-    SOURCE     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/shaders/nuklear.hlsl"
+    NAME       microui
+    SOURCE     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/shaders/microui.hlsl"
     OUTPUT_DIR "${_engine_shader_out}"
     STAGES     vert frag
-    ENTRY_VERT nk_vs
-    ENTRY_FRAG nk_fs
-    TARGET_VAR _nuklear_shader_target
+    ENTRY_VERT mu_vs
+    ENTRY_FRAG mu_fs
+    TARGET_VAR _microui_shader_target
 )
-add_dependencies(safi_engine ${_nuklear_shader_target})
+add_dependencies(safi_engine ${_microui_shader_target})
 
 safi_compile_shader(
     NAME       lit
@@ -67,4 +67,5 @@ safi_compile_shader(
 add_dependencies(safi_engine ${_lit_shader_target})
 target_compile_definitions(safi_engine PRIVATE
     SAFI_ENGINE_SHADER_DIR="${_engine_shader_out}"
+    SAFI_ENGINE_FONT_PATH="${CMAKE_SOURCE_DIR}/engine/assets/fonts/ProggyClean.ttf"
 )

@@ -4,7 +4,7 @@ A pure-C game engine and its documentation site, kept in one monorepo.
 
 ```
 SafiEngineV3/
-├── SafiEngine/   # the engine — C11, CMake, SDL3 GPU, flecs, Nuklear
+├── SafiEngine/   # the engine — C11, CMake, SDL3 GPU, flecs, MicroUI
 └── Docs/         # the documentation site — rspress + MDX
 ```
 
@@ -19,9 +19,9 @@ SafiEngine is a **pure-C** game engine with **zero manual dependency setup**. Al
 | ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                 |
 | Math           | [cglm](https://github.com/recp/cglm)                                                                    |
 | glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)              |
-| Debug UI       | [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) — single-header, pure C, custom SDL_gpu backend |
+| Debug UI       | [MicroUI](https://github.com/rxi/microui) — tiny pure-C immediate-mode UI, custom SDL_gpu batched-quad backend |
 
-The first milestone is a glTF viewer that loads `BoxTextured.glb` and lets you rotate it with the arrow keys and WASD while a Nuklear overlay shows a live transform inspector.
+The first milestone is a glTF viewer that loads `BoxTextured.glb` and lets you rotate it with the arrow keys and WASD while a MicroUI overlay shows a live transform inspector.
 
 ## Build the engine
 

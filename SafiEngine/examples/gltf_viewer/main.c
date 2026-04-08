@@ -9,7 +9,7 @@
  *   A / D          → roll
  *   W / S          → zoom (dolly along camera forward)
  *
- * A Nuklear overlay shows FPS and a transform inspector.
+ * A MicroUI overlay shows FPS and a transform inspector.
  */
 #include <safi/safi.h>
 
@@ -31,7 +31,7 @@ static DemoState g_demo;
 /* ---- Systems ----------------------------------------------------------- */
 
 static void control_system(ecs_iter_t *it) {
-    /* Skip game keyboard controls when a Nuklear widget is active (e.g. the
+    /* Skip game keyboard controls when a MicroUI widget is active (e.g. the
      * user is typing a number into a property field). */
     if (safi_debug_ui_wants_input()) return;
 
@@ -72,18 +72,18 @@ static void control_system(ecs_iter_t *it) {
     }
 }
 
-/* Render system: draws the glTF model + Nuklear debug UI.
+/* Render system: draws the glTF model + MicroUI debug UI.
  *
  * Frame shape (SDL_gpu forbids nested passes, so the UI's vertex upload
  * must happen BEFORE the main render pass opens):
  *
  *   begin_frame                    -> cmd + swapchain
- *   debug_ui_begin_frame           -> NK ready for widget calls
+ *   debug_ui_begin_frame           -> mu_begin, ready for widget calls
  *   <build widgets>
- *   debug_ui_prepare               -> nk_convert + copy-pass upload
+ *   debug_ui_prepare               -> mu_end + batch quads + copy-pass upload
  *   begin_main_pass                -> open color+depth pass
  *   <draw mesh>
- *   debug_ui_render                -> record NK draws into the pass
+ *   debug_ui_render                -> record batched draws into the pass
  *   end_main_pass
  *   end_frame                      -> submit
  */
@@ -99,7 +99,7 @@ static void render_system(ecs_iter_t *it) {
     SafiTransform *xf  = ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
     if (!cam || !xf) { safi_renderer_end_frame(r); return; }
 
-    /* ---- Build Nuklear widgets (pre-pass) ------------------------------ */
+    /* ---- Build MicroUI widgets (pre-pass) ------------------------------- */
     if (a->debug_ui_enabled) {
         safi_debug_ui_begin_frame(r);
         safi_debug_ui_draw_panels(r, it->world);
