@@ -188,8 +188,8 @@ int main(int argc, char **argv) {
      * Compiled shaders live in SAFI_DEMO_SHADER_DIR (see CMakeLists.txt);
      * the loader picks .spv or .msl based on the active GPU backend. */
     char model_path[1024];
-    // snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
-    snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
+    snprintf(model_path,  sizeof(model_path),  "%s/models/BoxTextured.glb", SAFI_DEMO_ASSET_DIR);
+    // snprintf(model_path, sizeof(model_path), "%s/models/player.glb", SAFI_DEMO_ASSET_DIR);
 
     if (!safi_model_load_lit(&app.renderer, model_path, SAFI_DEMO_SHADER_DIR, &g_demo.model)) {
         SAFI_LOG_ERROR("failed to load %s", model_path);

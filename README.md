@@ -2,6 +2,8 @@
 
 A pure-C game engine and its documentation site, kept in one monorepo.
 
+![img](./img/ScreenShot.png)
+
 ```
 SafiEngineV3/
 ├── SafiEngine/   # the engine — C11, CMake, SDL3 GPU, flecs, MicroUI
