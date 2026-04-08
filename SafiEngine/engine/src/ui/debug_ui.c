@@ -1,25 +1,26 @@
 /*
- * Nuklear debug-UI backend for SafiEngine (SDL3 + SDL_gpu, Metal format).
+ * MicroUI debug-UI backend for SafiEngine (SDL3 + SDL_gpu).
  *
  * Owns:
- *   - a Nuklear context + font atlas baked into a GPU texture
- *   - a graphics pipeline rendering the Nuklear vertex format
- *   - reusable vertex/index GPU buffers sized to SAFI_NK_VBO_BYTES / _IBO_BYTES
- *   - CPU conversion buffers (nk_buffer) for nk_convert
+ *   - a MicroUI context
+ *   - a stb_truetype font atlas baked into a GPU texture
+ *   - a batched-quad graphics pipeline (same vertex format as before)
+ *   - reusable vertex/index GPU buffers
+ *   - CPU staging arrays for batching quads per frame
  *
  * Frame shape (matches safi_renderer_*):
  *   safi_renderer_begin_frame         -> cmd + swapchain
- *   safi_debug_ui_begin_frame         -> nk_input_end, ready for widgets
- *   <user widget calls: nk_begin/.../nk_end>
- *   safi_debug_ui_prepare             -> nk_convert + GPU upload (copy pass)
+ *   safi_debug_ui_begin_frame         -> mu_begin
+ *   <user widget calls: mu_begin_window/.../mu_end_window>
+ *   safi_debug_ui_prepare             -> mu_end + batch quads + GPU upload (copy pass)
  *   safi_renderer_begin_main_pass     -> main color+depth pass opens
  *   <draw geometry>
  *   safi_debug_ui_render              -> iterate draw commands, scissor+draw
  *   safi_renderer_end_main_pass
  *   safi_renderer_end_frame           -> submit
  *
- * The whole file is C11. Nuklear is a single-header library included here
- * with NK_IMPLEMENTATION defined exactly once in the engine.
+ * The whole file is C11. MicroUI is a small library (~1100 SLOC) included
+ * via its header; the .c is compiled separately by CMake.
  */
 
 #include "safi/ui/debug_ui.h"
@@ -34,69 +35,157 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define NK_IMPLEMENTATION
-#define NK_INCLUDE_FIXED_TYPES
-#define NK_INCLUDE_STANDARD_IO
-#define NK_INCLUDE_STANDARD_VARARGS
-#define NK_INCLUDE_DEFAULT_ALLOCATOR
-#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
-#define NK_INCLUDE_FONT_BAKING
-#define NK_INCLUDE_DEFAULT_FONT
-#include <nuklear.h>
+#include <microui.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_truetype.h>
 
 /* -- tuning ---------------------------------------------------------------- */
-#define SAFI_NK_VBO_BYTES  (512 * 1024)
-#define SAFI_NK_IBO_BYTES  (128 * 1024)
+#define MU_VBO_BYTES   (512 * 1024)
+#define MU_IBO_BYTES   (128 * 1024)
+#define MU_MAX_VERTS   (MU_VBO_BYTES / (int)sizeof(MuVertex))
+#define MU_MAX_INDICES (MU_IBO_BYTES / (int)sizeof(uint16_t))
+
+#define FONT_ATLAS_W   512
+#define FONT_ATLAS_H   512
+#define FONT_FIRST_CHAR 32
+#define FONT_NUM_CHARS  95  /* ASCII 32..126 */
+#define FONT_SIZE_PT    13.0f
+
+/* Maximum draw commands we can record per frame. Each scissor change or
+ * texture change produces a new draw command. */
+#define MAX_DRAW_CMDS  256
 
 /* -- vertex layout --------------------------------------------------------- */
-typedef struct SafiNkVertex {
+typedef struct MuVertex {
     float    position[2];
     float    uv[2];
     uint8_t  color[4];
-} SafiNkVertex;
+} MuVertex;
 
-/* Nuklear's shader lives in engine/src/ui/shaders/nuklear.hlsl and is
- * compiled to SPIR-V + MSL at build time (see cmake/SafiShaders.cmake).
- * The generated artifacts land in SAFI_ENGINE_SHADER_DIR, which is
- * injected as a compile definition from engine/CMakeLists.txt. */
+/* -- recorded draw command for the render pass ----------------------------- */
+typedef struct MuDrawCmd {
+    SDL_Rect scissor;
+    uint32_t index_offset;
+    uint32_t index_count;
+} MuDrawCmd;
 
 /* -- module state ---------------------------------------------------------- */
 static struct {
     bool initialized;
 
-    struct nk_context            ctx;
-    struct nk_font_atlas         atlas;
-    struct nk_draw_null_texture  null_tex;
-    struct nk_buffer             cmds;   /* nk_context command buffer storage */
-    struct nk_buffer             verts;  /* CPU vertex scratch */
-    struct nk_buffer             idxs;   /* CPU index  scratch */
+    mu_Context ctx;
 
+    /* Font atlas (stb_truetype) */
+    SDL_GPUTexture  *font_tex;
+    stbtt_bakedchar  cdata[FONT_NUM_CHARS];
+    float            font_height;   /* logical height reported to MicroUI */
+    float            dpi_scale;
+
+    /* GPU resources */
     SDL_Window              *window;
     SDL_GPUDevice           *device;
     SDL_GPUGraphicsPipeline *pipeline;
     SDL_GPUSampler          *sampler;
-    SDL_GPUTexture          *font_tex;
     SDL_GPUBuffer           *vbo;
     SDL_GPUBuffer           *ibo;
 
-    uint8_t *vbo_cpu;
-    uint8_t *ibo_cpu;
+    /* CPU batch buffers */
+    MuVertex *verts;
+    uint16_t *indices;
+    int       vert_count;
+    int       index_count;
+
+    /* Draw command recording */
+    MuDrawCmd draw_cmds[MAX_DRAW_CMDS];
+    int       draw_cmd_count;
+    SDL_Rect  current_scissor;
+    uint32_t  batch_index_start;
+
+    /* White pixel UV for solid-color rectangles (top-left corner of atlas) */
+    float white_u;
+    float white_v;
+
+    /* Double-click detection for number widgets */
+    mu_Id    last_click_id;      /* widget ID of last click */
+    uint64_t last_click_time;    /* SDL ticks of last click */
 
     ecs_entity_t selected_entity;
-    float        dpi_scale;
 } S;
+
+/* -- font callbacks for MicroUI ------------------------------------------- */
+
+static int s_text_width(mu_Font font, const char *str, int len) {
+    (void)font;
+    if (len == -1) len = (int)strlen(str);
+    float w = 0;
+    for (int i = 0; i < len; i++) {
+        int c = (unsigned char)str[i] - FONT_FIRST_CHAR;
+        if (c >= 0 && c < FONT_NUM_CHARS) {
+            w += S.cdata[c].xadvance;
+        }
+    }
+    return (int)(w / S.dpi_scale);
+}
+
+static int s_text_height(mu_Font font) {
+    (void)font;
+    return (int)S.font_height;
+}
 
 /* -- helpers --------------------------------------------------------------- */
 
-static bool s_upload_font_atlas(SafiRenderer *r,
-                                const void   *pixels,
-                                int           width,
-                                int           height) {
+static bool s_load_and_bake_font(SafiRenderer *r) {
+    /* Read TTF file */
+    FILE *f = fopen(SAFI_ENGINE_FONT_PATH, "rb");
+    if (!f) {
+        SAFI_LOG_ERROR("MicroUI: cannot open font: %s", SAFI_ENGINE_FONT_PATH);
+        return false;
+    }
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    unsigned char *ttf_data = (unsigned char *)malloc((size_t)fsize);
+    if (!ttf_data) { fclose(f); return false; }
+    fread(ttf_data, 1, (size_t)fsize, f);
+    fclose(f);
+
+    /* Bake at pixel size for HiDPI */
+    float pixel_size = FONT_SIZE_PT * S.dpi_scale;
+    unsigned char *alpha_bitmap = (unsigned char *)malloc(FONT_ATLAS_W * FONT_ATLAS_H);
+    if (!alpha_bitmap) { free(ttf_data); return false; }
+
+    int bake_ret = stbtt_BakeFontBitmap(ttf_data, 0, pixel_size,
+                                         alpha_bitmap, FONT_ATLAS_W, FONT_ATLAS_H,
+                                         FONT_FIRST_CHAR, FONT_NUM_CHARS, S.cdata);
+    free(ttf_data);
+    if (bake_ret <= 0) {
+        SAFI_LOG_WARN("MicroUI: font bake returned %d (may have missing glyphs)", bake_ret);
+    }
+
+    /* Convert alpha-only bitmap to RGBA (white text, alpha from bitmap).
+     * Reserve pixel (0,0) as a solid white pixel for rectangle drawing. */
+    unsigned char *rgba = (unsigned char *)malloc(FONT_ATLAS_W * FONT_ATLAS_H * 4);
+    if (!rgba) { free(alpha_bitmap); return false; }
+    for (int i = 0; i < FONT_ATLAS_W * FONT_ATLAS_H; i++) {
+        rgba[i * 4 + 0] = 255;
+        rgba[i * 4 + 1] = 255;
+        rgba[i * 4 + 2] = 255;
+        rgba[i * 4 + 3] = alpha_bitmap[i];
+    }
+    /* Force pixel (0,0) to solid white for rectangle UVs */
+    rgba[0] = rgba[1] = rgba[2] = rgba[3] = 255;
+    free(alpha_bitmap);
+
+    S.white_u = 0.5f / (float)FONT_ATLAS_W;
+    S.white_v = 0.5f / (float)FONT_ATLAS_H;
+
+    /* Upload to GPU texture */
     SDL_GPUTextureCreateInfo ti = {
         .type                 = SDL_GPU_TEXTURETYPE_2D,
         .format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-        .width                = (uint32_t)width,
-        .height               = (uint32_t)height,
+        .width                = FONT_ATLAS_W,
+        .height               = FONT_ATLAS_H,
         .layer_count_or_depth = 1,
         .num_levels           = 1,
         .sample_count         = SDL_GPU_SAMPLECOUNT_1,
@@ -104,46 +193,50 @@ static bool s_upload_font_atlas(SafiRenderer *r,
     };
     S.font_tex = SDL_CreateGPUTexture(r->device, &ti);
     if (!S.font_tex) {
-        SAFI_LOG_ERROR("Nuklear: font atlas texture create failed: %s", SDL_GetError());
+        SAFI_LOG_ERROR("MicroUI: font atlas texture create failed: %s", SDL_GetError());
+        free(rgba);
         return false;
     }
 
-    uint32_t bytes = (uint32_t)(width * height * 4);
+    uint32_t bytes = FONT_ATLAS_W * FONT_ATLAS_H * 4;
     SDL_GPUTransferBufferCreateInfo tbi = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size  = bytes,
     };
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(r->device, &tbi);
     void *mapped = SDL_MapGPUTransferBuffer(r->device, tb, false);
-    memcpy(mapped, pixels, bytes);
+    memcpy(mapped, rgba, bytes);
     SDL_UnmapGPUTransferBuffer(r->device, tb);
+    free(rgba);
 
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(r->device);
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
     SDL_GPUTextureTransferInfo src = {
         .transfer_buffer = tb,
         .offset          = 0,
-        .pixels_per_row  = (uint32_t)width,
-        .rows_per_layer  = (uint32_t)height,
+        .pixels_per_row  = FONT_ATLAS_W,
+        .rows_per_layer  = FONT_ATLAS_H,
     };
     SDL_GPUTextureRegion dst = {
         .texture = S.font_tex,
-        .w = (uint32_t)width, .h = (uint32_t)height, .d = 1,
+        .w = FONT_ATLAS_W, .h = FONT_ATLAS_H, .d = 1,
     };
     SDL_UploadToGPUTexture(copy, &src, &dst, false);
     SDL_EndGPUCopyPass(copy);
     SDL_SubmitGPUCommandBuffer(cmd);
     SDL_ReleaseGPUTransferBuffer(r->device, tb);
+
+    S.font_height = FONT_SIZE_PT;
     return true;
 }
 
 static bool s_create_pipeline(SafiRenderer *r) {
     SDL_GPUShader *vs = safi_shader_load(r, SAFI_ENGINE_SHADER_DIR,
-                                         "nuklear", "nk_vs",
+                                         "microui", "mu_vs",
                                          SAFI_SHADER_STAGE_VERTEX,
                                          0, 1, 0, 0);
     SDL_GPUShader *fs = safi_shader_load(r, SAFI_ENGINE_SHADER_DIR,
-                                         "nuklear", "nk_fs",
+                                         "microui", "mu_fs",
                                          SAFI_SHADER_STAGE_FRAGMENT,
                                          1, 0, 0, 0);
     if (!vs || !fs) {
@@ -154,20 +247,20 @@ static bool s_create_pipeline(SafiRenderer *r) {
 
     SDL_GPUVertexBufferDescription vbd = {
         .slot               = 0,
-        .pitch              = sizeof(SafiNkVertex),
+        .pitch              = sizeof(MuVertex),
         .input_rate         = SDL_GPU_VERTEXINPUTRATE_VERTEX,
         .instance_step_rate = 0,
     };
     SDL_GPUVertexAttribute attrs[3] = {
         { .buffer_slot = 0, .location = 0,
           .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-          .offset = offsetof(SafiNkVertex, position) },
+          .offset = offsetof(MuVertex, position) },
         { .buffer_slot = 0, .location = 1,
           .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-          .offset = offsetof(SafiNkVertex, uv) },
+          .offset = offsetof(MuVertex, uv) },
         { .buffer_slot = 0, .location = 2,
           .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
-          .offset = offsetof(SafiNkVertex, color) },
+          .offset = offsetof(MuVertex, color) },
     };
 
     SDL_GPUColorTargetDescription color_desc = {
@@ -214,7 +307,7 @@ static bool s_create_pipeline(SafiRenderer *r) {
     SDL_ReleaseGPUShader(r->device, vs);
     SDL_ReleaseGPUShader(r->device, fs);
     if (!S.pipeline) {
-        SAFI_LOG_ERROR("Nuklear: pipeline create failed: %s", SDL_GetError());
+        SAFI_LOG_ERROR("MicroUI: pipeline create failed: %s", SDL_GetError());
         return false;
     }
 
@@ -233,17 +326,130 @@ static bool s_create_pipeline(SafiRenderer *r) {
 static bool s_create_gpu_buffers(SafiRenderer *r) {
     SDL_GPUBufferCreateInfo vbi = {
         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
-        .size  = SAFI_NK_VBO_BYTES,
+        .size  = MU_VBO_BYTES,
     };
     S.vbo = SDL_CreateGPUBuffer(r->device, &vbi);
     SDL_GPUBufferCreateInfo ibi = {
         .usage = SDL_GPU_BUFFERUSAGE_INDEX,
-        .size  = SAFI_NK_IBO_BYTES,
+        .size  = MU_IBO_BYTES,
     };
     S.ibo = SDL_CreateGPUBuffer(r->device, &ibi);
-    S.vbo_cpu = (uint8_t *)malloc(SAFI_NK_VBO_BYTES);
-    S.ibo_cpu = (uint8_t *)malloc(SAFI_NK_IBO_BYTES);
-    return S.vbo && S.ibo && S.vbo_cpu && S.ibo_cpu;
+    S.verts   = (MuVertex *)malloc(MU_VBO_BYTES);
+    S.indices = (uint16_t *)malloc(MU_IBO_BYTES);
+    return S.vbo && S.ibo && S.verts && S.indices;
+}
+
+/* -- quad batching --------------------------------------------------------- */
+
+static void s_push_quad(float x, float y, float w, float h,
+                        float u0, float v0, float u1, float v1,
+                        mu_Color color) {
+    if (S.vert_count + 4 > MU_MAX_VERTS || S.index_count + 6 > MU_MAX_INDICES)
+        return;
+
+    uint16_t vi = (uint16_t)S.vert_count;
+    MuVertex *v = &S.verts[S.vert_count];
+    uint8_t c[4] = { color.r, color.g, color.b, color.a };
+
+    v[0] = (MuVertex){ {x,     y    }, {u0, v0}, {c[0], c[1], c[2], c[3]} };
+    v[1] = (MuVertex){ {x + w, y    }, {u1, v0}, {c[0], c[1], c[2], c[3]} };
+    v[2] = (MuVertex){ {x + w, y + h}, {u1, v1}, {c[0], c[1], c[2], c[3]} };
+    v[3] = (MuVertex){ {x,     y + h}, {u0, v1}, {c[0], c[1], c[2], c[3]} };
+    S.vert_count += 4;
+
+    uint16_t *idx = &S.indices[S.index_count];
+    idx[0] = vi; idx[1] = vi + 1; idx[2] = vi + 2;
+    idx[3] = vi; idx[4] = vi + 2; idx[5] = vi + 3;
+    S.index_count += 6;
+}
+
+static void s_push_rect(mu_Rect rect, mu_Color color) {
+    s_push_quad((float)rect.x, (float)rect.y,
+                (float)rect.w, (float)rect.h,
+                S.white_u, S.white_v, S.white_u, S.white_v,
+                color);
+}
+
+static void s_push_text(const char *str, mu_Vec2 pos, mu_Color color) {
+    float x = (float)pos.x * S.dpi_scale;
+    float y = (float)pos.y * S.dpi_scale;
+
+    while (*str) {
+        int c = (unsigned char)*str - FONT_FIRST_CHAR;
+        if (c >= 0 && c < FONT_NUM_CHARS) {
+            stbtt_bakedchar *b = &S.cdata[c];
+            float x0 = x + b->xoff;
+            float y0 = y + b->yoff + FONT_SIZE_PT * S.dpi_scale;
+            float x1 = x0 + (b->x1 - b->x0);
+            float y1 = y0 + (b->y1 - b->y0);
+            float u0 = (float)b->x0 / FONT_ATLAS_W;
+            float v0 = (float)b->y0 / FONT_ATLAS_H;
+            float u1 = (float)b->x1 / FONT_ATLAS_W;
+            float v1 = (float)b->y1 / FONT_ATLAS_H;
+
+            /* Positions are in pixel space (scaled), convert back to logical
+             * for the vertex shader which works in logical coords. */
+            s_push_quad(x0 / S.dpi_scale, y0 / S.dpi_scale,
+                        (x1 - x0) / S.dpi_scale, (y1 - y0) / S.dpi_scale,
+                        u0, v0, u1, v1, color);
+
+            x += b->xadvance;
+        }
+        str++;
+    }
+}
+
+static void s_push_icon(int id, mu_Rect rect, mu_Color color) {
+    /* MicroUI icons: MU_ICON_CLOSE (1), MU_ICON_CHECK (2),
+     * MU_ICON_COLLAPSED (3), MU_ICON_EXPANDED (4).
+     * Render as simple geometric shapes using rectangles. */
+    int cx = rect.x + rect.w / 2;
+    int cy = rect.y + rect.h / 2;
+
+    switch (id) {
+    case MU_ICON_CLOSE: {
+        /* Small X: two overlapping rectangles */
+        int sz = 6;
+        s_push_rect(mu_rect(cx - sz/2, cy - 1, sz, 2), color);
+        s_push_rect(mu_rect(cx - 1, cy - sz/2, 2, sz), color);
+        break;
+    }
+    case MU_ICON_CHECK: {
+        /* Simple checkmark: small filled square */
+        int sz = 8;
+        s_push_rect(mu_rect(cx - sz/2, cy - sz/2, sz, sz), color);
+        break;
+    }
+    case MU_ICON_COLLAPSED: {
+        /* Right-pointing triangle approximation: stacked rects */
+        s_push_rect(mu_rect(cx - 2, cy - 4, 2, 8), color);
+        s_push_rect(mu_rect(cx,     cy - 2, 2, 4), color);
+        s_push_rect(mu_rect(cx + 2, cy - 1, 2, 2), color);
+        break;
+    }
+    case MU_ICON_EXPANDED: {
+        /* Down-pointing triangle approximation: stacked rects */
+        s_push_rect(mu_rect(cx - 4, cy - 2, 8, 2), color);
+        s_push_rect(mu_rect(cx - 2, cy,     4, 2), color);
+        s_push_rect(mu_rect(cx - 1, cy + 2, 2, 2), color);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void s_record_draw_cmd(void) {
+    uint32_t count = (uint32_t)S.index_count - S.batch_index_start;
+    if (count == 0) return;
+    if (S.draw_cmd_count >= MAX_DRAW_CMDS) return;
+
+    S.draw_cmds[S.draw_cmd_count++] = (MuDrawCmd){
+        .scissor      = S.current_scissor,
+        .index_offset = S.batch_index_start,
+        .index_count  = count,
+    };
+    S.batch_index_start = (uint32_t)S.index_count;
 }
 
 /* -- public API ------------------------------------------------------------ */
@@ -252,45 +458,16 @@ bool safi_debug_ui_init(SafiRenderer *r) {
     memset(&S, 0, sizeof(S));
     S.window = r->window;
     S.device = r->device;
-
-    if (!nk_init_default(&S.ctx, NULL)) {
-        SAFI_LOG_ERROR("Nuklear: nk_init_default failed");
-        return false;
-    }
-
     S.dpi_scale = r->dpi_scale;
 
-    /* Bake the default font into an RGBA32 atlas, scaled for HiDPI. */
-    nk_font_atlas_init_default(&S.atlas);
-    nk_font_atlas_begin(&S.atlas);
-    struct nk_font *font = nk_font_atlas_add_default(&S.atlas,
-                                                      14.0f * S.dpi_scale, NULL);
-    int atlas_w, atlas_h;
-    const void *pixels = nk_font_atlas_bake(&S.atlas, &atlas_w, &atlas_h, NK_FONT_ATLAS_RGBA32);
-    if (!pixels || !s_upload_font_atlas(r, pixels, atlas_w, atlas_h)) return false;
+    mu_init(&S.ctx);
+    S.ctx.text_width  = s_text_width;
+    S.ctx.text_height = s_text_height;
 
-    nk_font_atlas_end(&S.atlas, nk_handle_ptr(S.font_tex), &S.null_tex);
-    if (S.atlas.default_font) font = S.atlas.default_font;
-    /* The atlas glyphs are baked at pixel size (14 * dpi_scale) for sharp
-     * rendering, but Nuklear layout must use the logical point size so
-     * widgets don't appear oversized. */
-    font->handle.height = 14.0f;
-    nk_style_set_font(&S.ctx, &font->handle);
-
+    if (!s_load_and_bake_font(r))    return false;
     if (!s_create_pipeline(r))       return false;
     if (!s_create_gpu_buffers(r))    return false;
 
-    nk_buffer_init_default(&S.cmds);
-    nk_buffer_init_default(&S.verts);
-    nk_buffer_init_default(&S.idxs);
-
-    /* Open the input collection window so the very first frame's events
-     * (processed before safi_debug_ui_begin_frame runs) land in an active
-     * begin/end bracket. */
-    nk_input_begin(&S.ctx);
-
-    /* Enable SDL text input so SDL_EVENT_TEXT_INPUT events are generated.
-     * Without this, Nuklear property widgets cannot accept typed numbers. */
     SDL_StartTextInput(r->window);
 
     S.initialized = true;
@@ -300,153 +477,151 @@ bool safi_debug_ui_init(SafiRenderer *r) {
 void safi_debug_ui_shutdown(SafiRenderer *r) {
     if (!S.initialized) return;
 
-    nk_buffer_free(&S.cmds);
-    nk_buffer_free(&S.verts);
-    nk_buffer_free(&S.idxs);
-    nk_font_atlas_clear(&S.atlas);
-    nk_free(&S.ctx);
-
     if (S.vbo)      SDL_ReleaseGPUBuffer(r->device, S.vbo);
     if (S.ibo)      SDL_ReleaseGPUBuffer(r->device, S.ibo);
     if (S.font_tex) SDL_ReleaseGPUTexture(r->device, S.font_tex);
     if (S.sampler)  SDL_ReleaseGPUSampler(r->device, S.sampler);
     if (S.pipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, S.pipeline);
 
-    free(S.vbo_cpu);
-    free(S.ibo_cpu);
+    free(S.verts);
+    free(S.indices);
 
     memset(&S, 0, sizeof(S));
 }
 
-/* Translate an SDL event into Nuklear input. Called per event by the engine
- * input system — nk_input_begin / nk_input_end bracketing happens in
- * safi_debug_ui_begin_frame. */
 void safi_debug_ui_process_event(const void *sdl_event) {
     if (!S.initialized) return;
     const SDL_Event *e = (const SDL_Event *)sdl_event;
-    struct nk_context *ctx = &S.ctx;
+    mu_Context *ctx = &S.ctx;
 
     switch (e->type) {
     case SDL_EVENT_MOUSE_MOTION:
-        nk_input_motion(ctx, (int)e->motion.x, (int)e->motion.y);
+        mu_input_mousemove(ctx, (int)e->motion.x, (int)e->motion.y);
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
-        bool down = (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN);
         int x = (int)e->button.x, y = (int)e->button.y;
-        enum nk_buttons b = NK_BUTTON_LEFT;
+        int btn = 0;
         switch (e->button.button) {
-            case SDL_BUTTON_LEFT:   b = NK_BUTTON_LEFT; break;
-            case SDL_BUTTON_MIDDLE: b = NK_BUTTON_MIDDLE; break;
-            case SDL_BUTTON_RIGHT:  b = NK_BUTTON_RIGHT; break;
+            case SDL_BUTTON_LEFT:   btn = MU_MOUSE_LEFT; break;
+            case SDL_BUTTON_MIDDLE: btn = MU_MOUSE_MIDDLE; break;
+            case SDL_BUTTON_RIGHT:  btn = MU_MOUSE_RIGHT; break;
             default: return;
         }
-        nk_input_button(ctx, b, x, y, down);
+        if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+            mu_input_mousedown(ctx, x, y, btn);
+        else
+            mu_input_mouseup(ctx, x, y, btn);
         break;
     }
     case SDL_EVENT_MOUSE_WHEEL:
-        nk_input_scroll(ctx, nk_vec2(e->wheel.x, e->wheel.y));
+        mu_input_scroll(ctx, (int)(e->wheel.x * -30),
+                              (int)(e->wheel.y * -30));
         break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
-        bool down = (e->type == SDL_EVENT_KEY_DOWN);
+        int down = (e->type == SDL_EVENT_KEY_DOWN);
         SDL_Scancode sc = e->key.scancode;
+        int key = 0;
         switch (sc) {
             case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT:
-                nk_input_key(ctx, NK_KEY_SHIFT, down); break;
+                key = MU_KEY_SHIFT; break;
             case SDL_SCANCODE_LCTRL:  case SDL_SCANCODE_RCTRL:
-                nk_input_key(ctx, NK_KEY_CTRL, down); break;
-            case SDL_SCANCODE_DELETE:
-                nk_input_key(ctx, NK_KEY_DEL, down); break;
-            case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER:
-                nk_input_key(ctx, NK_KEY_ENTER, down); break;
-            case SDL_SCANCODE_TAB:
-                nk_input_key(ctx, NK_KEY_TAB, down); break;
+                key = MU_KEY_CTRL; break;
+            case SDL_SCANCODE_LALT:   case SDL_SCANCODE_RALT:
+                key = MU_KEY_ALT; break;
             case SDL_SCANCODE_BACKSPACE:
-                nk_input_key(ctx, NK_KEY_BACKSPACE, down); break;
-            case SDL_SCANCODE_LEFT:
-                nk_input_key(ctx, NK_KEY_LEFT, down); break;
-            case SDL_SCANCODE_RIGHT:
-                nk_input_key(ctx, NK_KEY_RIGHT, down); break;
-            case SDL_SCANCODE_UP:
-                nk_input_key(ctx, NK_KEY_UP, down); break;
-            case SDL_SCANCODE_DOWN:
-                nk_input_key(ctx, NK_KEY_DOWN, down); break;
+                key = MU_KEY_BACKSPACE; break;
+            case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER:
+                key = MU_KEY_RETURN; break;
             default: break;
+        }
+        if (key) {
+            if (down) mu_input_keydown(ctx, key);
+            else      mu_input_keyup(ctx, key);
         }
         break;
     }
-    case SDL_EVENT_TEXT_INPUT: {
-        const char *p = e->text.text;
-        while (*p) nk_input_char(ctx, *p++);
+    case SDL_EVENT_TEXT_INPUT:
+        mu_input_text(ctx, e->text.text);
         break;
-    }
-    default: break;
+    default:
+        break;
     }
 }
 
 void safi_debug_ui_begin_frame(SafiRenderer *r) {
     (void)r;
     if (!S.initialized) return;
-    /* Finalize events gathered since the last render and leave the input
-     * state frozen so widgets observe mouse clicks, deltas, etc. The next
-     * nk_input_begin happens at the end of safi_debug_ui_render, after the
-     * frame is done. Calling nk_input_begin here would reset clicked flags
-     * before widgets could read them. */
-    nk_input_end(&S.ctx);
+    mu_begin(&S.ctx);
 }
 
-/* Convert widgets → vertices/indices, upload to GPU. Runs a copy pass; must
- * be called BEFORE safi_renderer_begin_main_pass. */
 void safi_debug_ui_prepare(SafiRenderer *r) {
     if (!S.initialized || !r->cmd) return;
-    /* Input was already ended in safi_debug_ui_begin_frame. Do not end it
-     * again here — that would leave nuklear outside a valid input bracket. */
 
-    struct nk_convert_config cfg = {0};
-    static const struct nk_draw_vertex_layout_element layout[] = {
-        { NK_VERTEX_POSITION, NK_FORMAT_FLOAT,    NK_OFFSETOF(SafiNkVertex, position) },
-        { NK_VERTEX_TEXCOORD, NK_FORMAT_FLOAT,    NK_OFFSETOF(SafiNkVertex, uv) },
-        { NK_VERTEX_COLOR,    NK_FORMAT_R8G8B8A8, NK_OFFSETOF(SafiNkVertex, color) },
-        { NK_VERTEX_LAYOUT_END }
-    };
-    cfg.vertex_layout        = layout;
-    cfg.vertex_size          = sizeof(SafiNkVertex);
-    cfg.vertex_alignment     = NK_ALIGNOF(SafiNkVertex);
-    cfg.tex_null             = S.null_tex;
-    cfg.circle_segment_count = 22;
-    cfg.curve_segment_count  = 22;
-    cfg.arc_segment_count    = 22;
-    cfg.global_alpha         = 1.0f;
-    cfg.shape_AA             = NK_ANTI_ALIASING_ON;
-    cfg.line_AA              = NK_ANTI_ALIASING_ON;
+    mu_end(&S.ctx);
 
-    nk_buffer_clear(&S.verts);
-    nk_buffer_clear(&S.idxs);
+    /* Reset batch state */
+    S.vert_count       = 0;
+    S.index_count      = 0;
+    S.draw_cmd_count   = 0;
+    S.batch_index_start = 0;
 
-    /* Wrap the fixed CPU staging buffers so nk_convert writes straight into
-     * them — no second memcpy. */
-    struct nk_buffer v_stage, i_stage;
-    nk_buffer_init_fixed(&v_stage, S.vbo_cpu, SAFI_NK_VBO_BYTES);
-    nk_buffer_init_fixed(&i_stage, S.ibo_cpu, SAFI_NK_IBO_BYTES);
+    /* Default scissor covers the whole pixel viewport */
+    S.current_scissor = (SDL_Rect){ 0, 0, (int)r->swapchain_w, (int)r->swapchain_h };
 
-    nk_flags flags = nk_convert(&S.ctx, &S.cmds, &v_stage, &i_stage, &cfg);
-    if (flags & NK_CONVERT_VERTEX_BUFFER_FULL)  SAFI_LOG_WARN("Nuklear: vertex buffer full");
-    if (flags & NK_CONVERT_ELEMENT_BUFFER_FULL) SAFI_LOG_WARN("Nuklear: element buffer full");
+    /* Iterate MicroUI commands and batch quads */
+    mu_Command *cmd = NULL;
+    while (mu_next_command(&S.ctx, &cmd)) {
+        switch (cmd->type) {
+        case MU_COMMAND_CLIP: {
+            /* Flush current batch before changing scissor */
+            s_record_draw_cmd();
+            /* Convert logical clip rect to pixel coords */
+            float sc = S.dpi_scale;
+            mu_Rect cr = cmd->clip.rect;
+            SDL_Rect scissor = {
+                .x = (int)(cr.x > 0 ? cr.x * sc : 0),
+                .y = (int)(cr.y > 0 ? cr.y * sc : 0),
+                .w = (int)(cr.w * sc),
+                .h = (int)(cr.h * sc),
+            };
+            if (scissor.w < 0) scissor.w = 0;
+            if (scissor.h < 0) scissor.h = 0;
+            if ((uint32_t)scissor.x > r->swapchain_w) scissor.x = (int)r->swapchain_w;
+            if ((uint32_t)scissor.y > r->swapchain_h) scissor.y = (int)r->swapchain_h;
+            if (scissor.x + scissor.w > (int)r->swapchain_w) scissor.w = (int)r->swapchain_w - scissor.x;
+            if (scissor.y + scissor.h > (int)r->swapchain_h) scissor.h = (int)r->swapchain_h - scissor.y;
+            S.current_scissor = scissor;
+            break;
+        }
+        case MU_COMMAND_RECT:
+            s_push_rect(cmd->rect.rect, cmd->rect.color);
+            break;
+        case MU_COMMAND_TEXT:
+            s_push_text(cmd->text.str, cmd->text.pos, cmd->text.color);
+            break;
+        case MU_COMMAND_ICON:
+            s_push_icon(cmd->icon.id, cmd->icon.rect, cmd->icon.color);
+            break;
+        }
+    }
+    /* Flush final batch */
+    s_record_draw_cmd();
 
-    size_t v_bytes = nk_buffer_total(&v_stage);
-    size_t i_bytes = nk_buffer_total(&i_stage);
+    /* Upload to GPU */
+    size_t v_bytes = (size_t)S.vert_count * sizeof(MuVertex);
+    size_t i_bytes = (size_t)S.index_count * sizeof(uint16_t);
     if (v_bytes == 0 || i_bytes == 0) return;
 
-    /* Upload to GPU through a transient transfer buffer. */
     SDL_GPUTransferBufferCreateInfo tbi = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size  = (uint32_t)(v_bytes + i_bytes),
     };
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(r->device, &tbi);
     uint8_t *mapped = (uint8_t *)SDL_MapGPUTransferBuffer(r->device, tb, false);
-    memcpy(mapped,           S.vbo_cpu, v_bytes);
-    memcpy(mapped + v_bytes, S.ibo_cpu, i_bytes);
+    memcpy(mapped,           S.verts,   v_bytes);
+    memcpy(mapped + v_bytes, S.indices, i_bytes);
     SDL_UnmapGPUTransferBuffer(r->device, tb);
 
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(r->cmd);
@@ -461,11 +636,10 @@ void safi_debug_ui_prepare(SafiRenderer *r) {
 }
 
 void safi_debug_ui_render(SafiRenderer *r) {
-    if (!S.initialized || !r->pass) return;
+    if (!S.initialized || !r->pass || S.draw_cmd_count == 0) return;
 
-    /* Push viewport size uniform (inv_half_viewport = 2/w, 2/h).
-     * Nuklear vertex positions are in logical points, so divide by logical
-     * (not pixel) dimensions to map to NDC. */
+    /* Push viewport size uniform. Vertex positions are in logical points,
+     * divide by logical dimensions to map to NDC. */
     float lw = (float)r->swapchain_w / S.dpi_scale;
     float lh = (float)r->swapchain_h / S.dpi_scale;
     float ubo[2] = { 2.0f / lw, 2.0f / lh };
@@ -478,50 +652,25 @@ void safi_debug_ui_render(SafiRenderer *r) {
     SDL_GPUBufferBinding ibind = { .buffer = S.ibo, .offset = 0 };
     SDL_BindGPUIndexBuffer(r->pass, &ibind, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
-    uint32_t index_offset = 0;
-    const struct nk_draw_command *cmd;
-    nk_draw_foreach(cmd, &S.ctx, &S.cmds) {
-        if (!cmd->elem_count) continue;
+    SDL_GPUTextureSamplerBinding sbind = { .texture = S.font_tex, .sampler = S.sampler };
+    SDL_BindGPUFragmentSamplers(r->pass, 0, &sbind, 1);
 
-        /* Scissor in pixels — Nuklear's clip_rect is in logical points,
-         * scale to pixel coordinates for the GPU. */
-        float sc = S.dpi_scale;
-        SDL_Rect scissor = {
-            .x = (int)((cmd->clip_rect.x > 0 ? cmd->clip_rect.x : 0) * sc),
-            .y = (int)((cmd->clip_rect.y > 0 ? cmd->clip_rect.y : 0) * sc),
-            .w = (int)(cmd->clip_rect.w * sc),
-            .h = (int)(cmd->clip_rect.h * sc),
-        };
-        if (scissor.w < 0) scissor.w = 0;
-        if (scissor.h < 0) scissor.h = 0;
-        /* Clamp to swapchain to avoid driver asserts on oversized rects. */
-        if ((uint32_t)scissor.x > r->swapchain_w) scissor.x = (int)r->swapchain_w;
-        if ((uint32_t)scissor.y > r->swapchain_h) scissor.y = (int)r->swapchain_h;
-        if (scissor.x + scissor.w > (int)r->swapchain_w) scissor.w = (int)r->swapchain_w - scissor.x;
-        if (scissor.y + scissor.h > (int)r->swapchain_h) scissor.h = (int)r->swapchain_h - scissor.y;
-        SDL_SetGPUScissor(r->pass, &scissor);
-
-        SDL_GPUTexture *tex = (SDL_GPUTexture *)cmd->texture.ptr;
-        if (!tex) tex = S.font_tex;
-        SDL_GPUTextureSamplerBinding sbind = { .texture = tex, .sampler = S.sampler };
-        SDL_BindGPUFragmentSamplers(r->pass, 0, &sbind, 1);
-
-        SDL_DrawGPUIndexedPrimitives(r->pass, cmd->elem_count, 1, index_offset, 0, 0);
-        index_offset += cmd->elem_count;
+    for (int i = 0; i < S.draw_cmd_count; i++) {
+        MuDrawCmd *dc = &S.draw_cmds[i];
+        SDL_SetGPUScissor(r->pass, &dc->scissor);
+        SDL_DrawGPUIndexedPrimitives(r->pass, dc->index_count, 1,
+                                     dc->index_offset, 0, 0);
     }
-
-    nk_clear(&S.ctx);
-    nk_buffer_clear(&S.cmds);
-    nk_input_begin(&S.ctx);  /* reopen input for next frame */
 }
 
-/* Expose the context to examples that want to add widgets. */
-struct nk_context *safi_debug_ui_context(void) {
+/* -- context access -------------------------------------------------------- */
+
+mu_Context *safi_debug_ui_context(void) {
     return S.initialized ? &S.ctx : NULL;
 }
 
 bool safi_debug_ui_wants_input(void) {
-    return S.initialized && nk_item_is_any_active(&S.ctx);
+    return S.initialized && (S.ctx.focus != 0);
 }
 
 ecs_entity_t safi_debug_ui_selected_entity(void) {
@@ -532,16 +681,65 @@ void safi_debug_ui_select_entity(ecs_entity_t e) {
     S.selected_entity = e;
 }
 
+/* -- built-in panels ------------------------------------------------------- */
+
+/* Single number cell: drag to change, double-click for text input.
+ * After mu_number_ex runs (which sets hover/focus), we check for a
+ * double-click and trigger MicroUI's built-in text edit mode for the
+ * next frame. */
+static void s_number_cell(mu_Context *ctx, float *val, float step) {
+    mu_Id id = mu_get_id(ctx, &val, sizeof(val));
+
+    mu_number_ex(ctx, val, step, "%.2f", MU_OPT_ALIGNCENTER);
+
+    /* Detect double-click on this widget (hover is set by mu_number_ex) */
+    if ((ctx->mouse_pressed & MU_MOUSE_LEFT) &&
+        (ctx->hover == id || ctx->focus == id)) {
+        uint64_t now = SDL_GetTicksNS();
+        if (S.last_click_id == id &&
+            (now - S.last_click_time) < 400000000ULL) {
+            /* Double-click — activate MicroUI's built-in text edit */
+            ctx->number_edit = id;
+            sprintf(ctx->number_edit_buf, MU_REAL_FMT, *val);
+            S.last_click_id   = 0;
+            S.last_click_time = 0;
+        } else {
+            S.last_click_id   = id;
+            S.last_click_time = now;
+        }
+    }
+}
+
+/* Label on the left + single number on the right. */
+static void s_property_float(mu_Context *ctx, const char *label,
+                              float *val, float step) {
+    mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
+    mu_label(ctx, label);
+    s_number_cell(ctx, val, step);
+}
+
+/* Label on the left + three X/Y/Z numbers in one row.
+ * We compute equal widths for the 3 cells from the container width. */
+static void s_property_vec3(mu_Context *ctx, const char *label,
+                             float *xyz, float step) {
+    int avail = mu_get_current_container(ctx)->body.w -
+                ctx->style->padding * 2;
+    int label_w = 80;
+    int cell_w  = (avail - label_w - ctx->style->spacing * 3) / 3;
+    mu_layout_row(ctx, 4, (int[]){ label_w, cell_w, cell_w, cell_w }, 0);
+    mu_label(ctx, label);
+    s_number_cell(ctx, &xyz[0], step);
+    s_number_cell(ctx, &xyz[1], step);
+    s_number_cell(ctx, &xyz[2], step);
+}
+
 void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     if (!S.initialized) return;
-    struct nk_context *ctx = &S.ctx;
+    mu_Context *ctx = &S.ctx;
     char buf[128];
 
     /* ---- Scene Hierarchy (left side) --------------------------------- */
-    if (nk_begin(ctx, "Scene",
-                 nk_rect(20, 20, 200, 400),
-                 NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
-                 NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+    if (mu_begin_window(ctx, "Scene", mu_rect(20, 20, 200, 400))) {
         ecs_query_t *q = ecs_query(world, {
             .terms = {{ .id = ecs_id(SafiName) }},
             .cache_kind = EcsQueryCacheNone,
@@ -550,267 +748,173 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         while (ecs_query_next(&qit)) {
             const SafiName *names = ecs_field(&qit, SafiName, 0);
             for (int i = 0; i < qit.count; i++) {
-                nk_layout_row_dynamic(ctx, 22, 1);
-                nk_bool is_sel = (qit.entities[i] == S.selected_entity);
-                if (nk_selectable_label(ctx, names[i].value,
-                                        NK_TEXT_LEFT, &is_sel)) {
+                mu_layout_row(ctx, 1, (int[]){ -1 }, 22);
+                bool is_sel = (qit.entities[i] == S.selected_entity);
+                if (is_sel) {
+                    ctx->style->colors[MU_COLOR_BUTTON]       = mu_color(60, 60, 140, 255);
+                    ctx->style->colors[MU_COLOR_BUTTONHOVER]   = mu_color(70, 70, 160, 255);
+                    ctx->style->colors[MU_COLOR_BUTTONFOCUS]   = mu_color(80, 80, 180, 255);
+                }
+                if (mu_button(ctx, names[i].value)) {
                     S.selected_entity = qit.entities[i];
+                }
+                if (is_sel) {
+                    ctx->style->colors[MU_COLOR_BUTTON]       = mu_color(75, 75, 75, 255);
+                    ctx->style->colors[MU_COLOR_BUTTONHOVER]   = mu_color(95, 95, 95, 255);
+                    ctx->style->colors[MU_COLOR_BUTTONFOCUS]   = mu_color(115, 115, 115, 255);
                 }
             }
         }
         ecs_query_fini(q);
+        mu_end_window(ctx);
     }
-    nk_end(ctx);
 
     /* ---- Inspector (right side) -------------------------------------- */
     float insp_x = (float)r->swapchain_w / S.dpi_scale - 320.0f;
     if (insp_x < 240.0f) insp_x = 240.0f;
 
-    if (nk_begin(ctx, "Inspector",
-                 nk_rect(insp_x, 20, 300, 520),
-                 NK_WINDOW_BORDER | NK_WINDOW_MOVABLE |
-                 NK_WINDOW_SCALABLE | NK_WINDOW_TITLE)) {
+    if (mu_begin_window(ctx, "Inspector",
+                        mu_rect((int)insp_x, 20, 300, 520))) {
 
         if (!S.selected_entity) {
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "No entity selected", NK_TEXT_LEFT);
-            goto inspector_end;
+            mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+            mu_label(ctx, "No entity selected");
+            mu_end_window(ctx);
+            return;
         }
 
         /* Entity name header */
         const SafiName *name = ecs_get(world, S.selected_entity, SafiName);
         if (name) {
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, name->value, NK_TEXT_LEFT);
+            mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+            mu_label(ctx, name->value);
         }
 
         /* ---- SafiTransform ------------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiTransform)) {
             SafiTransform *xf = ecs_get_mut(world, S.selected_entity,
                                             SafiTransform);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Position", NK_TEXT_LEFT);
-            nk_property_float(ctx, "pos x", -100.0f,
-                              &xf->position[0], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "pos y", -100.0f,
-                              &xf->position[1], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "pos z", -100.0f,
-                              &xf->position[2], 100.0f, 0.1f, 0.01f);
+            if (mu_header_ex(ctx, "Transform", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Position", xf->position, 0.1f);
 
-            mat4 rot_mat;
-            vec3 euler_rad;
-            glm_quat_mat4(xf->rotation, rot_mat);
-            glm_euler_angles(rot_mat, euler_rad);
-            float rot_deg[3] = {
-                glm_deg(euler_rad[0]),
-                glm_deg(euler_rad[1]),
-                glm_deg(euler_rad[2]),
-            };
+                mat4 rot_mat;
+                vec3 euler_rad;
+                glm_quat_mat4(xf->rotation, rot_mat);
+                glm_euler_angles(rot_mat, euler_rad);
+                float rot_deg[3] = {
+                    glm_deg(euler_rad[0]),
+                    glm_deg(euler_rad[1]),
+                    glm_deg(euler_rad[2]),
+                };
 
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Rotation", NK_TEXT_LEFT);
-            nk_property_float(ctx, "rot x", -180.0f,
-                              &rot_deg[0], 180.0f, 1.0f, 0.5f);
-            nk_property_float(ctx, "rot y", -180.0f,
-                              &rot_deg[1], 180.0f, 1.0f, 0.5f);
-            nk_property_float(ctx, "rot z", -180.0f,
-                              &rot_deg[2], 180.0f, 1.0f, 0.5f);
+                s_property_vec3(ctx, "Rotation", rot_deg, 1.0f);
 
-            euler_rad[0] = glm_rad(rot_deg[0]);
-            euler_rad[1] = glm_rad(rot_deg[1]);
-            euler_rad[2] = glm_rad(rot_deg[2]);
-            glm_euler_xyz(euler_rad, rot_mat);
-            glm_mat4_quat(rot_mat, xf->rotation);
+                euler_rad[0] = glm_rad(rot_deg[0]);
+                euler_rad[1] = glm_rad(rot_deg[1]);
+                euler_rad[2] = glm_rad(rot_deg[2]);
+                glm_euler_xyz(euler_rad, rot_mat);
+                glm_mat4_quat(rot_mat, xf->rotation);
 
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Scale", NK_TEXT_LEFT);
-            nk_property_float(ctx, "scale x", 0.01f,
-                              &xf->scale[0], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "scale y", 0.01f,
-                              &xf->scale[1], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "scale z", 0.01f,
-                              &xf->scale[2], 100.0f, 0.1f, 0.01f);
+                s_property_vec3(ctx, "Scale", xf->scale, 0.1f);
+            }
         }
 
         /* ---- SafiCamera ---------------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiCamera)) {
             SafiCamera *cam = ecs_get_mut(world, S.selected_entity,
                                           SafiCamera);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Camera", NK_TEXT_LEFT);
+            if (mu_header_ex(ctx, "Camera", MU_OPT_EXPANDED)) {
+                float fov_deg = glm_deg(cam->fov_y_radians);
+                s_property_float(ctx, "FOV", &fov_deg, 1.0f);
+                cam->fov_y_radians = glm_rad(fov_deg);
 
-            float fov_deg = glm_deg(cam->fov_y_radians);
-            nk_property_float(ctx, "FOV", 1.0f, &fov_deg, 179.0f,
-                              1.0f, 0.5f);
-            cam->fov_y_radians = glm_rad(fov_deg);
+                s_property_float(ctx, "Near", &cam->z_near, 0.01f);
+                s_property_float(ctx, "Far",  &cam->z_far, 1.0f);
 
-            nk_property_float(ctx, "Near", 0.001f,
-                              &cam->z_near, 100.0f, 0.01f, 0.001f);
-            nk_property_float(ctx, "Far", 1.0f,
-                              &cam->z_far, 10000.0f, 1.0f, 0.5f);
-
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Target", NK_TEXT_LEFT);
-            nk_property_float(ctx, "target x", -100.0f,
-                              &cam->target[0], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "target y", -100.0f,
-                              &cam->target[1], 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "target z", -100.0f,
-                              &cam->target[2], 100.0f, 0.1f, 0.01f);
+                s_property_vec3(ctx, "Target", cam->target, 0.1f);
+            }
         }
 
         /* ---- SafiMeshRenderer ---------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiMeshRenderer)) {
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "MeshRenderer", NK_TEXT_LEFT);
-
-            const SafiMeshRenderer *mr = ecs_get(world, S.selected_entity,
-                                                  SafiMeshRenderer);
-            snprintf(buf, sizeof(buf), "Mesh: %s",
-                     mr->mesh ? "assigned" : "none");
-            nk_label(ctx, buf, NK_TEXT_LEFT);
-            snprintf(buf, sizeof(buf), "Material: %s",
-                     mr->material ? "assigned" : "none");
-            nk_label(ctx, buf, NK_TEXT_LEFT);
+            if (mu_header_ex(ctx, "MeshRenderer", MU_OPT_EXPANDED)) {
+                const SafiMeshRenderer *mr = ecs_get(world, S.selected_entity,
+                                                      SafiMeshRenderer);
+                mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+                snprintf(buf, sizeof(buf), "Mesh: %s",
+                         mr->mesh ? "assigned" : "none");
+                mu_label(ctx, buf);
+                snprintf(buf, sizeof(buf), "Material: %s",
+                         mr->material ? "assigned" : "none");
+                mu_label(ctx, buf);
+            }
         }
 
         /* ---- SafiSpin ------------------------------------------------ */
         if (ecs_has(world, S.selected_entity, SafiSpin)) {
             SafiSpin *spin = ecs_get_mut(world, S.selected_entity, SafiSpin);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Spin", NK_TEXT_LEFT);
-            nk_property_float(ctx, "speed", -20.0f,
-                              &spin->speed, 20.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "axis x", -1.0f,
-                              &spin->axis[0], 1.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "axis y", -1.0f,
-                              &spin->axis[1], 1.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "axis z", -1.0f,
-                              &spin->axis[2], 1.0f, 0.1f, 0.01f);
+            if (mu_header_ex(ctx, "Spin", MU_OPT_EXPANDED)) {
+                s_property_float(ctx, "speed", &spin->speed, 0.1f);
+                s_property_vec3(ctx, "Axis", spin->axis, 0.1f);
+            }
         }
 
         /* ---- SafiDirectionalLight ------------------------------------ */
         if (ecs_has(world, S.selected_entity, SafiDirectionalLight)) {
             SafiDirectionalLight *dl = ecs_get_mut(world, S.selected_entity,
                                                     SafiDirectionalLight);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Directional Light", NK_TEXT_LEFT);
-            nk_property_float(ctx, "dir x", -1.0f,
-                              &dl->direction[0], 1.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "dir y", -1.0f,
-                              &dl->direction[1], 1.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "dir z", -1.0f,
-                              &dl->direction[2], 1.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "color r", 0.0f,
-                              &dl->color[0], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color g", 0.0f,
-                              &dl->color[1], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color b", 0.0f,
-                              &dl->color[2], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "intensity", 0.0f,
-                              &dl->intensity, 10.0f, 0.1f, 0.01f);
+            if (mu_header_ex(ctx, "Directional Light", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Direction", dl->direction, 0.1f);
+                s_property_vec3(ctx, "Color",     dl->color, 0.05f);
+                s_property_float(ctx, "intensity", &dl->intensity, 0.1f);
+            }
         }
 
         /* ---- SafiPointLight ------------------------------------------ */
         if (ecs_has(world, S.selected_entity, SafiPointLight)) {
             SafiPointLight *pl = ecs_get_mut(world, S.selected_entity,
                                               SafiPointLight);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Point Light", NK_TEXT_LEFT);
-            nk_property_float(ctx, "color r", 0.0f,
-                              &pl->color[0], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color g", 0.0f,
-                              &pl->color[1], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color b", 0.0f,
-                              &pl->color[2], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "intensity", 0.0f,
-                              &pl->intensity, 10.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "range", 0.01f,
-                              &pl->range, 1000.0f, 1.0f, 0.1f);
+            if (mu_header_ex(ctx, "Point Light", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Color", pl->color, 0.05f);
+                s_property_float(ctx, "intensity", &pl->intensity, 0.1f);
+                s_property_float(ctx, "range",     &pl->range, 1.0f);
+            }
         }
 
         /* ---- SafiSpotLight ------------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiSpotLight)) {
             SafiSpotLight *sl = ecs_get_mut(world, S.selected_entity,
                                              SafiSpotLight);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Spot Light", NK_TEXT_LEFT);
-            nk_property_float(ctx, "color r", 0.0f,
-                              &sl->color[0], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color g", 0.0f,
-                              &sl->color[1], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color b", 0.0f,
-                              &sl->color[2], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "intensity", 0.0f,
-                              &sl->intensity, 10.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "range", 0.01f,
-                              &sl->range, 1000.0f, 1.0f, 0.1f);
-            nk_property_float(ctx, "inner angle", 0.0f,
-                              &sl->inner_angle, 1.0f, 0.01f, 0.005f);
-            nk_property_float(ctx, "outer angle", 0.0f,
-                              &sl->outer_angle, 1.0f, 0.01f, 0.005f);
+            if (mu_header_ex(ctx, "Spot Light", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Color", sl->color, 0.05f);
+                s_property_float(ctx, "intensity",   &sl->intensity, 0.1f);
+                s_property_float(ctx, "range",       &sl->range, 1.0f);
+                s_property_float(ctx, "inner angle", &sl->inner_angle, 0.01f);
+                s_property_float(ctx, "outer angle", &sl->outer_angle, 0.01f);
+            }
         }
 
         /* ---- SafiRectLight ------------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiRectLight)) {
             SafiRectLight *rl = ecs_get_mut(world, S.selected_entity,
                                              SafiRectLight);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Rect Light", NK_TEXT_LEFT);
-            nk_property_float(ctx, "color r", 0.0f,
-                              &rl->color[0], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color g", 0.0f,
-                              &rl->color[1], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color b", 0.0f,
-                              &rl->color[2], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "intensity", 0.0f,
-                              &rl->intensity, 10.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "width", 0.01f,
-                              &rl->width, 100.0f, 0.1f, 0.01f);
-            nk_property_float(ctx, "height", 0.01f,
-                              &rl->height, 100.0f, 0.1f, 0.01f);
+            if (mu_header_ex(ctx, "Rect Light", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Color", rl->color, 0.05f);
+                s_property_float(ctx, "intensity", &rl->intensity, 0.1f);
+                s_property_float(ctx, "width",     &rl->width, 0.1f);
+                s_property_float(ctx, "height",    &rl->height, 0.1f);
+            }
         }
 
         /* ---- SafiSkyLight -------------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiSkyLight)) {
             SafiSkyLight *sk = ecs_get_mut(world, S.selected_entity,
                                             SafiSkyLight);
-            nk_layout_row_dynamic(ctx, 6, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label(ctx, "Sky Light", NK_TEXT_LEFT);
-            nk_property_float(ctx, "color r", 0.0f,
-                              &sk->color[0], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color g", 0.0f,
-                              &sk->color[1], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "color b", 0.0f,
-                              &sk->color[2], 1.0f, 0.05f, 0.01f);
-            nk_property_float(ctx, "intensity", 0.0f,
-                              &sk->intensity, 10.0f, 0.1f, 0.01f);
+            if (mu_header_ex(ctx, "Sky Light", MU_OPT_EXPANDED)) {
+                s_property_vec3(ctx, "Color", sk->color, 0.05f);
+                s_property_float(ctx, "intensity", &sk->intensity, 0.1f);
+            }
         }
+        mu_end_window(ctx);
     }
-inspector_end:
-    nk_end(ctx);
 }

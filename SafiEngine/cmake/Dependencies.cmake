@@ -130,21 +130,44 @@ add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
-# Nuklear — single-header, pure C immediate-mode UI.
-# We only need nuklear.h; the rest of the repo is example renderers. The
-# engine provides its own SDL_gpu backend in engine/src/ui/debug_ui.c.
+# MicroUI — tiny, pure C immediate-mode UI (~1100 SLOC).
+# Produces high-level draw commands (rect, text, icon, clip); the engine
+# provides its own SDL_gpu batched-quad backend in engine/src/ui/debug_ui.c.
 # ---------------------------------------------------------------------------
-FetchContent_Declare(nuklear
-    GIT_REPOSITORY https://github.com/Immediate-Mode-UI/Nuklear.git
+FetchContent_Declare(microui
+    GIT_REPOSITORY https://github.com/rxi/microui.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(nuklear)
+FetchContent_MakeAvailable(microui)
 
-add_library(nuklear INTERFACE)
-target_include_directories(nuklear INTERFACE ${nuklear_SOURCE_DIR})
+add_library(microui STATIC ${microui_SOURCE_DIR}/src/microui.c)
+target_include_directories(microui PUBLIC ${microui_SOURCE_DIR}/src)
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ProggyClean.ttf — public-domain monospaced font for the debug UI.
+# ---------------------------------------------------------------------------
+set(SAFI_FONT_URL
+    "https://raw.githubusercontent.com/ocornut/imgui/master/misc/fonts/ProggyClean.ttf")
+set(SAFI_FONT_DST
+    "${CMAKE_SOURCE_DIR}/engine/assets/fonts/ProggyClean.ttf")
+
+if(NOT EXISTS "${SAFI_FONT_DST}")
+    message(STATUS "SafiEngine: downloading ProggyClean.ttf")
+    file(DOWNLOAD
+        "${SAFI_FONT_URL}"
+        "${SAFI_FONT_DST}"
+        SHOW_PROGRESS
+        STATUS _font_dl_status
+    )
+    list(GET _font_dl_status 0 _font_dl_code)
+    if(NOT _font_dl_code EQUAL 0)
+        message(WARNING "Failed to download ProggyClean.ttf (status=${_font_dl_status}). "
+                        "Place a .ttf manually at ${SAFI_FONT_DST}.")
+    endif()
+endif()
+
 # Sample glTF asset — fetched at configure time so the demo runs offline.
 # ---------------------------------------------------------------------------
 set(SAFI_SAMPLE_GLB_URL
