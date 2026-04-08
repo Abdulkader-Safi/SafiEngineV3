@@ -6,7 +6,7 @@ A pure-C game engine built on:
 - **flecs** — Bevy-like archetype ECS with components, systems, queries, pipelines
 - **cglm** — C SIMD math (vec / mat / quat)
 - **cgltf + stb_image** — glTF 2.0 loading
-- **Nuklear** — single-header, pure-C immediate-mode UI for the debug overlay. The engine ships its own SDL_gpu backend so nothing in this project is C++.
+- **[MicroUI](https://github.com/rxi/microui)** — tiny pure-C immediate-mode UI for the debug overlay. The engine ships its own SDL_gpu batched-quad backend so nothing in this project is C++.
 
 Everything is pulled in via CMake `FetchContent`. You need **only** a C/C++ compiler and CMake ≥ 3.24 — no `brew install sdl3`, no submodules to sync.
 
@@ -20,7 +20,7 @@ cmake --build build -j
 ./build/examples/gltf_viewer/gltf_viewer
 ```
 
-The first configure downloads SDL3, flecs, Nuklear, cglm, cgltf, stb, glslang, and SPIRV-Cross, then fetches `BoxTextured.glb` into `examples/gltf_viewer/assets/models/`.
+The first configure downloads SDL3, flecs, MicroUI, cglm, cgltf, stb, glslang, and SPIRV-Cross, then fetches `BoxTextured.glb` into `examples/gltf_viewer/assets/models/`.
 
 ## Controls (gltf_viewer demo)
 
@@ -31,11 +31,11 @@ The first configure downloads SDL3, flecs, Nuklear, cglm, cgltf, stb, glslang, a
 | A / D | Roll the model               |
 | W / S | Dolly camera (zoom in / out) |
 
-The Nuklear overlay shows backend name, FPS, and a live transform inspector you can drag around and resize.
+The MicroUI overlay shows a Scene hierarchy and a live Inspector with editable transform, camera, and light properties.
 
 ## IDE / LSP (Zed, VS Code, Neovim — anything clangd)
 
-`compile_commands.json` is emitted by CMake and **symlinked into the project root** automatically by `cmake/ClangdSetup.cmake`. Open any file under `engine/` or `examples/` in Zed and clangd will resolve SDL3, flecs, cglm, and nuklear headers without any further configuration.
+`compile_commands.json` is emitted by CMake and **symlinked into the project root** automatically by `cmake/ClangdSetup.cmake`. Open any file under `engine/` or `examples/` in Zed and clangd will resolve SDL3, flecs, cglm, and microui headers without any further configuration.
 
 A `.clangd` file at the repo root tells clangd the project is C11. There are no C++ translation units under `engine/` — the library is pure C.
 
@@ -45,7 +45,7 @@ A `.clangd` file at the repo root tells clangd the project is C11. There are no 
 SafiEngine/
 ├── CMakeLists.txt             # top-level, FetchContent, warnings, clangd symlink
 ├── cmake/
-│   ├── Dependencies.cmake     # SDL3, flecs, cglm, cgltf, stb, Nuklear, glslang, SPIRV-Cross
+│   ├── Dependencies.cmake     # SDL3, flecs, cglm, cgltf, stb, MicroUI, glslang, SPIRV-Cross
 │   ├── SafiShaders.cmake      # safi_compile_shader() — HLSL → SPIR-V + MSL build helper
 │   └── ClangdSetup.cmake      # compile_commands.json symlink + .clangd writer
 ├── engine/

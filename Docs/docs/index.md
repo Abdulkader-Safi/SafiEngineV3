@@ -4,7 +4,7 @@ pageType: home
 hero:
   name: Safi Engine
   text: A pure-C game engine
-  tagline: SDL3 GPU · Bevy-style ECS · Nuklear · zero-setup CMake
+  tagline: SDL3 GPU · Bevy-style ECS · MicroUI · zero-setup CMake
   actions:
     - theme: brand
       text: API Reference
@@ -20,7 +20,7 @@ hero:
     alt: SafiEngine
 features:
   - title: Pure C11, zero dependencies to install
-    details: Just CMake and a C/C++ compiler. FetchContent pulls SDL3, flecs, cglm, cgltf, stb, and Nuklear on first configure. No brew, no apt, no submodules, no C++ in the engine.
+    details: Just CMake and a C/C++ compiler. FetchContent pulls SDL3, flecs, cglm, cgltf, stb, and MicroUI on first configure. No brew, no apt, no submodules, no C++ in the engine.
     icon: 🧊
     link: /api/
   - title: SDL_gpu renderer
@@ -31,8 +31,8 @@ features:
     details: Powered by flecs. Components, queries, systems, pipelines, observers, and singletons — with a familiar Bevy-inspired API, just in plain C.
     icon: 🧬
     link: /api/ecs/overview
-  - title: Nuklear debug overlay
-    details: Single-header, pure-C immediate-mode UI with a built-in SDL_gpu backend. Drop inspectors, sliders, and tooling into any scene without dragging C++ into a C engine.
+  - title: MicroUI debug overlay
+    details: Tiny pure-C immediate-mode UI (~1100 SLOC) with a custom SDL_gpu batched-quad backend. Drop inspectors, number fields, and tooling into any scene without dragging C++ into a C engine.
     icon: 🪟
     link: /api/ui/debug_ui
   - title: glTF 2.0 loader

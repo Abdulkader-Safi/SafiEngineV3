@@ -91,7 +91,7 @@ The CMake helper `safi_compile_shader()` (in `cmake/SafiShaders.cmake`) runs two
 1. **HLSL → SPIR-V** via `glslangValidator -V -D -S <stage> -e <entry>`
 2. **SPIR-V → MSL** via `spirv-cross --msl --msl-version 20000`
 
-Generated artifacts land in `${CMAKE_BINARY_DIR}/shaders/`. See `examples/gltf_viewer/assets/shaders/unlit.hlsl` and `engine/src/ui/shaders/nuklear.hlsl` for working examples.
+Generated artifacts land in `${CMAKE_BINARY_DIR}/shaders/`. See `examples/gltf_viewer/assets/shaders/unlit.hlsl` and `engine/src/ui/shaders/microui.hlsl` for working examples.
 
 ## Example
 

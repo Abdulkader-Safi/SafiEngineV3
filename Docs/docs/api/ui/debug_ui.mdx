@@ -1,11 +1,11 @@
 ---
-title: Debug UI (Nuklear)
+title: Debug UI (MicroUI)
 description: Pure-C immediate-mode debug overlay with built-in Scene hierarchy and Inspector panels.
 ---
 
 # Debug UI
 
-SafiEngine's debug overlay uses **[Nuklear](https://github.com/Immediate-Mode-UI/Nuklear)** — a single-header, pure-C immediate-mode UI library. The engine ships its own SDL_gpu backend (font atlas upload, vertex/index buffers, pipeline, scissor + draw) so the whole stack stays in C.
+SafiEngine's debug overlay uses **[MicroUI](https://github.com/rxi/microui)** — a tiny (~1100 SLOC), pure-C immediate-mode UI library. The engine ships its own SDL_gpu batched-quad backend (stb_truetype font atlas, vertex/index buffer batching, pipeline, scissor + draw) so the whole stack stays in C.
 
 ```c
 #include <safi/ui/debug_ui.h>
@@ -15,28 +15,28 @@ SafiEngine's debug overlay uses **[Nuklear](https://github.com/Immediate-Mode-UI
 
 The debug UI is opt-in via `SafiAppDesc.enable_debug_ui`. When enabled:
 
-1. `safi_app_init` calls `safi_debug_ui_init` — creates the Nuklear context, bakes the default font into an `SDL_GPUTexture`, builds the UI graphics pipeline.
+1. `safi_app_init` calls `safi_debug_ui_init` — creates the MicroUI context, bakes a ProggyClean font atlas via stb_truetype into an `SDL_GPUTexture`, builds the UI graphics pipeline.
 2. Each frame, after `safi_renderer_begin_frame` and **before** `safi_renderer_begin_main_pass`:
-   - `safi_debug_ui_begin_frame(r)` — opens the widget window.
+   - `safi_debug_ui_begin_frame(r)` — calls `mu_begin`, opens the widget frame.
    - `safi_debug_ui_draw_panels(r, world)` — draws the built-in Scene and Inspector panels.
-   - Optionally build additional custom widgets with `nk_begin / nk_layout_row_dynamic / …`.
-   - `safi_debug_ui_prepare(r)` — runs `nk_convert` and uploads vertices/indices through a copy pass. Must happen before the main render pass opens; SDL_gpu forbids nested passes.
-3. After `safi_renderer_begin_main_pass` and any engine geometry, call `safi_debug_ui_render(r)` to record the Nuklear draw commands into the active render pass.
+   - Optionally build additional custom widgets with `mu_begin_window / mu_label / mu_button / …`.
+   - `safi_debug_ui_prepare(r)` — calls `mu_end`, batches all draw commands into vertex/index data, and uploads through a copy pass. Must happen before the main render pass opens; SDL_gpu forbids nested passes.
+3. After `safi_renderer_begin_main_pass` and any engine geometry, call `safi_debug_ui_render(r)` to record the batched draw commands into the active render pass.
 4. `safi_app_shutdown` calls `safi_debug_ui_shutdown`.
 
-The engine's input system already forwards SDL events to Nuklear — you don't need to call anything extra for mouse, keyboard, or text input.
+The engine's input system already forwards SDL events to MicroUI — you don't need to call anything extra for mouse, keyboard, or text input.
 
 ## Built-in panels
 
-The engine provides two ready-to-use panels via `safi_debug_ui_draw_panels`. No Nuklear include or widget code needed in your app.
+The engine provides two ready-to-use panels via `safi_debug_ui_draw_panels`. No MicroUI include or widget code needed in your app.
 
 ### Scene hierarchy
 
-Positioned on the **left side** of the window. Lists every entity that has a `SafiName` component. Clicking an entry selects it for the Inspector.
+Positioned on the **left side** of the window. Lists every entity that has a `SafiName` component. Clicking an entry selects it for the Inspector. The selected entity is highlighted with a distinct button color.
 
 ### Inspector
 
-Positioned on the **right side** of the window. Displays the selected entity's name and all its stock components with editable fields:
+Positioned on the **right side** of the window. Displays the selected entity's name and all its stock components in collapsible sections (expanded by default):
 
 | Component          | Fields shown                                              |
 | ------------------ | --------------------------------------------------------- |
@@ -44,6 +44,9 @@ Positioned on the **right side** of the window. Displays the selected entity's n
 | `SafiCamera`       | FOV (degrees), Near, Far, Target (x/y/z)                  |
 | `SafiMeshRenderer` | Mesh and Material assignment status                       |
 | `SafiSpin`         | Speed (rad/s), Axis (x/y/z)                               |
+| All 5 light types  | Color (r/g/b), Intensity, type-specific params            |
+
+Vec3 properties (position, rotation, scale, color, direction) display as a label with three editable number cells in a single row. Number fields support **drag to scrub** and **double-click to type** a value directly.
 
 Only components present on the selected entity are shown.
 
@@ -71,10 +74,10 @@ bool safi_debug_ui_init(SafiRenderer *r);
 void safi_debug_ui_shutdown(SafiRenderer *r);
 void safi_debug_ui_process_event(const void *sdl_event);  // called by the engine
 void safi_debug_ui_begin_frame(SafiRenderer *r);
-void safi_debug_ui_prepare(SafiRenderer *r);             // pre-pass, uploads UI vbo/ibo
+void safi_debug_ui_prepare(SafiRenderer *r);             // pre-pass, batches + uploads UI vbo/ibo
 void safi_debug_ui_render(SafiRenderer *r);              // in-pass, records draws
-struct nk_context *safi_debug_ui_context(void);          // the underlying nk context
-bool safi_debug_ui_wants_input(void);                    // true when a widget is active
+mu_Context *safi_debug_ui_context(void);                 // the underlying MicroUI context
+bool safi_debug_ui_wants_input(void);                    // true when a widget is focused
 ```
 
 ### Scene & Inspector
@@ -118,38 +121,37 @@ static void render_system(ecs_iter_t *it) {
 
 ## Custom widgets
 
-If you need additional Nuklear widgets beyond the built-in panels, include `<nuklear.h>` with the engine's feature macros and add your own `nk_begin` / `nk_end` blocks between `safi_debug_ui_begin_frame` and `safi_debug_ui_prepare`:
+If you need additional MicroUI widgets beyond the built-in panels, include `<microui.h>` and add your own `mu_begin_window` / `mu_end_window` blocks between `safi_debug_ui_begin_frame` and `safi_debug_ui_prepare`:
 
 ```c
-#define NK_INCLUDE_FIXED_TYPES
-#define NK_INCLUDE_STANDARD_IO
-#define NK_INCLUDE_STANDARD_VARARGS
-#define NK_INCLUDE_DEFAULT_ALLOCATOR
-#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
-#define NK_INCLUDE_FONT_BAKING
-#define NK_INCLUDE_DEFAULT_FONT
-#include <nuklear.h>
+#include <microui.h>
+
+// in your render system, after safi_debug_ui_begin_frame:
+mu_Context *ctx = safi_debug_ui_context();
+if (mu_begin_window(ctx, "My Panel", mu_rect(10, 10, 200, 100))) {
+    mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+    mu_label(ctx, "Hello from MicroUI!");
+    mu_end_window(ctx);
+}
 ```
 
-:::warning Feature macros must match
-The engine's `debug_ui.c` defines `NK_IMPLEMENTATION` together with the seven `NK_INCLUDE_*` macros above. Your translation unit must define **exactly the same** set (without `NK_IMPLEMENTATION`) so the `nk_context` struct layout matches across TUs.
-:::
+No special macros or feature flags needed — just include the header and call MicroUI functions directly.
 
-## Why Nuklear (not Dear ImGui)?
+## Why MicroUI?
 
-An earlier iteration used cimgui to drive Dear ImGui. That worked but required a C++ translation unit (`cmake/cimgui_bridge.cpp`) just to `extern "C"` the ImGui SDL3+SDL_gpu backends, plus a separate `safi_cimgui` static library compiling ~8 imgui `.cpp` files. For a **pure C** engine it added too much surface area.
+An earlier iteration used Nuklear. While functional, it was a large single-header (~18K SLOC) and its vertex-buffer conversion model (`nk_convert`) added complexity to the rendering backend.
 
-Nuklear is:
+MicroUI is:
 
-- **a single header**, no generator, no submodule, no C++
-- **pure C99**, so `safi_engine` is now 100% C with **zero** `.cpp` files compiled under its target
-- license-friendly (MIT / public domain dual-licensed)
-- dependency-free (uses its own vendored `stb_truetype` and `stb_rect_pack` for font baking)
+- **~1100 lines of C** — trivially auditable
+- **pure C99**, no generator, no submodule, no C++
+- **command-based rendering** — emits simple draw commands (rect, text, icon, clip) that the backend batches into GPU-friendly vertex data
+- license-friendly (MIT)
 
-Trade-off: Nuklear has no docking / multi-viewport and a smaller widget catalogue. For a debug overlay this is fine.
+Trade-off: MicroUI has a smaller widget catalogue than Nuklear or Dear ImGui. For a debug overlay this is fine — the engine extends it with custom property widgets (vec3 rows, double-click number editing) as needed.
 
 ## See also
 
 - [`SafiRenderer`](../render/renderer) — frame lifecycle (`begin_frame` → `begin_main_pass` → `end_main_pass` → `end_frame`)
 - [`SafiName`](../ecs/components) — entities need a `SafiName` component to appear in the Scene panel
-- [Nuklear project](https://github.com/Immediate-Mode-UI/Nuklear) — upstream docs and widget reference
+- [MicroUI project](https://github.com/rxi/microui) — upstream source and documentation
