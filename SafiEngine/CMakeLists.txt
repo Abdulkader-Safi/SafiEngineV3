@@ -18,7 +18,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Generate compile_commands.json")
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -35,9 +35,9 @@ include(ClangdSetup)
 # ---- Warnings --------------------------------------------------------------
 add_library(safi_warnings INTERFACE)
 if(MSVC)
-    target_compile_options(safi_warnings INTERFACE /W4 /permissive-)
+  target_compile_options(safi_warnings INTERFACE /W4 /permissive-)
 else()
-    target_compile_options(safi_warnings INTERFACE
+  target_compile_options(safi_warnings INTERFACE
         -Wall -Wextra -Wpedantic
         -Wno-unused-parameter
     )

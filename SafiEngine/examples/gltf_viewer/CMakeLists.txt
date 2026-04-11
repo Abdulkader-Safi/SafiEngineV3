@@ -1,4 +1,12 @@
-add_executable(gltf_viewer main.c)
+add_executable(gltf_viewer
+    src/main.c
+    src/demo_state.c
+    src/scene.c
+    src/systems/control_system.c
+    src/systems/render_system.c
+)
+
+target_include_directories(gltf_viewer PRIVATE include)
 
 target_link_libraries(gltf_viewer
     PRIVATE
