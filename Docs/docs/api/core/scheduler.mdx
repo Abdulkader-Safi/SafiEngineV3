@@ -1,52 +1,110 @@
 ---
 title: Scheduler & Stages
-description: Startup, update, fixed-update, and render stages — partially implemented.
+description: Three pipelines per frame — variable, fixed, and render — built on flecs phases.
 ---
 
 # Scheduler & Stages
 
 ```c
 #include <safi/ecs/ecs.h>
+#include <safi/ecs/phases.h>
 ```
 
-SafiEngine runs one flecs pipeline per frame. Systems are assigned to **phases** that execute in a fixed order. This is the engine's scheduling model — lightweight, implicit, and built on flecs pipelines rather than a custom scheduler.
-
-## Current phases
+SafiEngine runs **three** flecs pipelines per frame, in a fixed order. Each pipeline selects systems by the phase they depend on.
 
 ```text
-EcsOnLoad     → input pumped, SafiTime updated
-EcsOnUpdate   → gameplay / logic systems (yours)
-EcsOnStore    → rendering (currently demo-owned)
+┌────────────────────────── safi_app_tick ───────────────────────────┐
+│                                                                    │
+│  1. Variable pipeline   (wall-clock dt)                            │
+│       EcsOnLoad → EcsPreUpdate → EcsOnUpdate                       │
+│                  → EcsOnValidate → EcsPostUpdate                   │
+│                                                                    │
+│  2. Fixed pipeline      (looped N times, dt = SafiTime.fixed_delta)│
+│       SafiFixedUpdate                                              │
+│                                                                    │
+│  3. Render pipeline     (wall-clock dt)                            │
+│       EcsPreStore → EcsOnStore                                     │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-You can also use `EcsPreUpdate`, `EcsPostUpdate`, and `EcsPreStore` — see the [flecs quickstart](https://www.flecs.dev/flecs/md_docs_2Quickstart.html).
+The engine does **not** use the default flecs pipeline. It builds three custom pipelines in `safi_ecs_create`, each matching a specific set of phases, and `safi_app_tick` calls `ecs_run_pipeline` on them in order.
 
-## Registering a system
+## Assigning a system to a stage
 
-```c
-ECS_SYSTEM(world, my_system, EcsOnUpdate, SafiTransform);
-```
+Systems opt into a stage by depending on any phase that pipeline matches.
 
-Or with explicit dependency:
+### Variable-rate
 
 ```c
 ecs_system(world, {
-    .entity = ecs_entity(world, { .name = "MySystem", .add = ecs_dependson(EcsOnUpdate) }),
-    .query.terms = { { ecs_id(SafiTransform) } },
-    .callback = my_system,
+    .entity   = ecs_entity(world, { .name = "camera_follow",
+                                    .add  = ecs_ids(ecs_dependson(EcsOnUpdate)) }),
+    .callback = camera_follow,
 });
 ```
 
-:::warning WIP — Scheduling gaps
-The flecs pipeline phases are available, but the engine does not yet provide:
+Runs once per frame at wall-clock `dt`. Use this for input-driven logic, camera smoothing, gameplay that should feel smooth regardless of frame rate, and (when step 2 lands) transform propagation on `EcsPostUpdate`.
+
+### Fixed-rate
+
+```c
+ecs_system(world, {
+    .entity   = ecs_entity(world, { .name = "physics_step",
+                                    .add  = ecs_ids(ecs_dependson(SafiFixedUpdate)) }),
+    .callback = physics_step,
+});
+```
+
+Runs N times per frame at `SafiTime.fixed_delta` (default `1/60 s`). Use this for physics and any deterministic simulation where stable `dt` matters. `SafiFixedUpdate` is intentionally **not** chained to any default flecs phase, so it is invisible to the variable pipeline — it only runs from the fixed-step accumulator loop.
+
+### Render
+
+```c
+ecs_system(world, {
+    .entity   = ecs_entity(world, { .name = "my_overlay",
+                                    .add  = ecs_ids(ecs_dependson(EcsOnStore)) }),
+    .callback = my_overlay,
+});
+```
+
+Runs last in the frame, after both the variable and fixed stages have settled. Use this for draw systems.
+
+## Fixed-timestep accumulator
+
+Each frame the engine adds `dt` to an accumulator and then runs `SafiFixedUpdate` for as long as the accumulator has a full step in it, capped at `SafiApp.fixed_max_steps` per frame to prevent the spiral-of-death:
+
+```text
+fixed_accumulator += dt;
+steps = 0;
+while (fixed_accumulator >= fixed_delta && steps < fixed_max_steps) {
+    run_pipeline(safi_fixed_pipeline, fixed_delta);
+    fixed_accumulator -= fixed_delta;
+    steps++;
+}
+```
+
+If the cap is hit, the leftover time is discarded rather than carried into the next frame. `SafiTime.fixed_overshoot` exposes the surviving remainder for interpolation.
+
+## Pipeline accessors
+
+```c
+ecs_entity_t safi_ecs_variable_pipeline(void);
+ecs_entity_t safi_ecs_fixed_pipeline(void);
+ecs_entity_t safi_ecs_render_pipeline(void);
+```
+
+Exposed for tests and for apps that want to step individual stages manually. Normal code doesn't touch these — `safi_app_tick` handles them.
+
+:::warning WIP — scheduling gaps
+
 - **Startup stage** — no one-shot startup system registration API; initialization runs in `main()` before `safi_app_run`
-- **Fixed update stage** — no fixed-timestep accumulator or `FixedUpdate` schedule; all systems run at variable `dt`
-- **Engine-owned render stage** — the render system currently lives in the demo, not in the engine
-- **Higher-level ordering API** — only raw flecs `ecs_dependson` phase ordering is available; no explicit before/after system dependencies
-:::
+- **Engine-owned render stage** — the render system currently lives in the demo, not the engine (fixed in step 3)
+- **Higher-level ordering API** — only raw flecs `ecs_dependson` phase ordering; no explicit before/after system dependencies
+  :::
 
 ## See also
 
 - [`SafiApp`](./app) — owns the main loop
-- [Time](./time) — per-frame delta
+- [`SafiTime`](./time) — variable and fixed clocks
 - [ECS Overview](../ecs/overview)

@@ -28,6 +28,10 @@ typedef struct SafiAppDesc {
     int         height;
     bool        vsync;
     bool        enable_debug_ui;
+    /* Seconds per fixed-update step. 0 → default (1/60). */
+    float       fixed_dt;
+    /* Max fixed steps per frame to prevent spiral-of-death. 0 → default (4). */
+    int         fixed_max_steps;
 } SafiAppDesc;
 
 typedef struct SafiApp {
@@ -38,6 +42,11 @@ typedef struct SafiApp {
     uint64_t      last_ticks_ns;
     float         elapsed;
     uint64_t      frame_count;
+    /* Fixed timestep accumulator. Driven by safi_app_tick. */
+    float         fixed_dt;
+    float         fixed_accumulator;
+    float         fixed_elapsed;
+    int           fixed_max_steps;
 } SafiApp;
 
 bool safi_app_init(SafiApp *app, const SafiAppDesc *desc);

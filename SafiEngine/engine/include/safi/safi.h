@@ -13,6 +13,7 @@
 
 #include "safi/ecs/ecs.h"
 #include "safi/ecs/components.h"
+#include "safi/ecs/phases.h"
 
 #include "safi/input/input.h"
 

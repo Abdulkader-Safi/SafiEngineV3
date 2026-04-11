@@ -1,6 +1,6 @@
 ---
 title: Time
-description: Per-frame delta time and frame counter, exposed as an ECS singleton.
+description: Per-frame variable delta and fixed-timestep accumulator, exposed as an ECS singleton.
 ---
 
 # `SafiTime`
@@ -9,23 +9,43 @@ description: Per-frame delta time and frame counter, exposed as an ECS singleton
 #include <safi/core/time.h>
 ```
 
-`SafiTime` is a singleton component the engine updates once per frame, just before `ecs_progress`. Systems read it via `ecs_singleton_get(world, SafiTime)`.
+`SafiTime` is a singleton component the engine updates once per frame, just before running the variable-rate pipeline. Systems read it via `ecs_singleton_get(world, SafiTime)`.
 
 ## Type
 
 ```c
 typedef struct SafiTime {
-    float    delta;        // seconds since last frame
-    float    elapsed;      // seconds since app start
-    uint64_t frame_count;  // monotonic frame counter
+    float    delta;           /* seconds since last frame (wall-clock)     */
+    float    elapsed;         /* seconds since app start  (wall-clock)     */
+    uint64_t frame_count;     /* monotonic frame counter                   */
+    float    fixed_delta;     /* seconds per fixed step   (default 1/60)   */
+    float    fixed_elapsed;   /* accumulated fixed-step time               */
+    float    fixed_overshoot; /* accumulator remainder in [0, fixed_delta) */
 } SafiTime;
 ```
 
-:::warning WIP — Fixed timestep
-`SafiTime` currently tracks only variable-rate delta time. A fixed-timestep accumulator (`fixed_delta`, `fixed_elapsed`, `fixed_overshoot`) and a `FixedUpdate` schedule do not exist yet. All physics or deterministic logic must use the variable `delta` for now. See [Scheduler & Stages](./scheduler).
-:::
+Two clocks live in a single struct:
 
-## Example
+- **Variable-rate** — `delta`, `elapsed`, `frame_count`. Wall-clock. Read this from gameplay, camera, input-driven, and rendering systems.
+- **Fixed-rate** — `fixed_delta`, `fixed_elapsed`, `fixed_overshoot`. Driven by the `SafiFixedUpdate` phase. Read this from physics and any deterministic simulation.
+
+The engine ticks the fixed stage with a classic accumulator — each frame, `delta` is added to an accumulator, and `SafiFixedUpdate` runs as many times as needed to drain it in `fixed_delta` slices. `fixed_overshoot` is the unconsumed remainder, always in `[0, fixed_delta)`, and is useful as an interpolation alpha when rendering between fixed steps.
+
+## Configuration
+
+`fixed_delta` and the spiral-of-death cap are set in `SafiAppDesc`:
+
+```c
+safi_app_init(&app, &(SafiAppDesc){
+    .title           = "Demo",
+    .fixed_dt        = 1.0f / 120.0f, // 120 Hz physics; default is 1/60
+    .fixed_max_steps = 8,             // cap per frame; default is 4
+});
+```
+
+Leaving them zero keeps the defaults (`1/60 s`, `4` max steps per frame).
+
+## Example — variable-rate system
 
 ```c
 static void spin_system(ecs_iter_t *it) {
@@ -40,10 +60,28 @@ static void spin_system(ecs_iter_t *it) {
 ```
 
 :::tip Prefer `it->delta_time`
-flecs already passes `delta_time` on the iterator. `SafiTime` is there for systems that need `elapsed` or `frame_count` (e.g. procedural animation, deterministic replays).
+flecs already passes `delta_time` on the iterator. `SafiTime` is there for systems that need `elapsed`, `frame_count`, or the fixed-rate fields.
 :::
+
+## Example — fixed-rate system
+
+```c
+static void physics_step(ecs_iter_t *it) {
+    const SafiTime *t = ecs_singleton_get(it->world, SafiTime);
+    // dt is stable: it is always t->fixed_delta here
+    (void)t;
+    // ...integrate bodies...
+}
+
+ecs_system(world, {
+    .entity = ecs_entity(world, { .name = "physics_step",
+                                  .add  = ecs_ids(ecs_dependson(SafiFixedUpdate)) }),
+    .callback = physics_step,
+});
+```
 
 ## See also
 
-- [`SafiApp`](./app) — updates `SafiTime` each frame
+- [SafiApp](./app) — updates `SafiTime` each frame
+- [Scheduler & Stages](./scheduler) — how `SafiFixedUpdate` fits into the per-frame pipeline
 - [ECS resources](../ecs/resources)

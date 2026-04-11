@@ -16,6 +16,8 @@
 
 #include <flecs.h>
 
+#include "safi/ecs/phases.h"
+
 /* Create a new world preloaded with the engine's stock components and
  * resources. Most apps use safi_app_world() instead of calling this. */
 ecs_world_t *safi_ecs_create(void);

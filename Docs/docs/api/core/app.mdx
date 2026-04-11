@@ -20,6 +20,10 @@ typedef struct SafiAppDesc {
     int         height;
     bool        vsync;
     bool        enable_debug_ui;
+    /* Seconds per fixed-update step. 0 → default (1/60). */
+    float       fixed_dt;
+    /* Max fixed steps per frame (spiral-of-death cap). 0 → default (4). */
+    int         fixed_max_steps;
 } SafiAppDesc;
 
 typedef struct SafiApp {
@@ -27,6 +31,10 @@ typedef struct SafiApp {
     ecs_world_t  *world;
     bool          running;
     // ...internal fields...
+    float         fixed_dt;           // seconds per fixed step
+    float         fixed_accumulator;  // unconsumed dt
+    float         fixed_elapsed;      // accumulated fixed time
+    int           fixed_max_steps;    // spiral-of-death cap
 } SafiApp;
 ```
 
@@ -38,7 +46,7 @@ typedef struct SafiApp {
 bool safi_app_init(SafiApp *app, const SafiAppDesc *desc);
 ```
 
-Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with the [stock components](../ecs/components), installs the `SafiInput` and `SafiTime` singletons, and optionally boots the ImGui overlay. Returns `false` on failure; check `SDL_GetError()` for details.
+Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with the [stock components](../ecs/components) and the three engine pipelines, installs the `SafiInput` and `SafiTime` singletons, and optionally boots the MicroUI overlay. Returns `false` on failure; check `SDL_GetError()` for details.
 
 ### `safi_app_run`
 
@@ -46,7 +54,13 @@ Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with
 void safi_app_run(SafiApp *app);
 ```
 
-Blocks the calling thread in the main loop until the window closes or a system sets `app->running = false`. Each iteration drains SDL events into `SafiInput`, updates `SafiTime`, then calls `ecs_progress(world, dt)` which runs every registered system through the flecs pipeline (`EcsOnLoad → EcsOnUpdate → EcsOnStore`).
+Blocks the calling thread in the main loop until the window closes or a system sets `app->running = false`. Each frame, `safi_app_tick` drives three pipelines in order:
+
+1. **Variable** — `EcsOnLoad → … → EcsPostUpdate` at wall-clock `dt`
+2. **Fixed** — `SafiFixedUpdate`, looped N times at stable `fixed_delta`
+3. **Render** — `EcsPreStore → EcsOnStore` at wall-clock `dt`
+
+See [Scheduler & Stages](./scheduler) for the details.
 
 ### `safi_app_tick`
 
