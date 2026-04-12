@@ -99,7 +99,6 @@ Exposed for tests and for apps that want to step individual stages manually. Nor
 :::warning WIP — scheduling gaps
 
 - **Startup stage** — no one-shot startup system registration API; initialization runs in `main()` before `safi_app_run`
-- **Engine-owned render stage** — the render system currently lives in the demo, not the engine (fixed in step 3)
 - **Higher-level ordering API** — only raw flecs `ecs_dependson` phase ordering; no explicit before/after system dependencies
   :::
 

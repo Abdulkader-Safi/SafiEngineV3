@@ -31,6 +31,8 @@ bool scene_setup(SafiApp *app) {
               .scale = {1.0f, 1.0f, 1.0f},
           });
   ecs_set(world, g_demo.model_entity, SafiGlobalTransform, {0});
+  ecs_set(world, g_demo.model_entity, SafiMeshRenderer,
+          {.model = &g_demo.model, .visible = true});
   ecs_set(world, g_demo.model_entity, SafiName, {.value = "Model"});
 
   /* Spawn the camera. */
@@ -42,6 +44,7 @@ bool scene_setup(SafiApp *app) {
               .z_far = 100.0f,
               .target = {0, 0, 0},
           });
+  ecs_set(world, g_demo.camera_entity, SafiActiveCamera, {0});
   ecs_set(world, g_demo.camera_entity, SafiName, {.value = "Camera"});
 
   /* Spawn a directional light (sun). */

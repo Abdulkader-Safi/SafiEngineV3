@@ -925,11 +925,11 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 const SafiMeshRenderer *mr = ecs_get(world, S.selected_entity,
                                                       SafiMeshRenderer);
                 mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
-                snprintf(buf, sizeof(buf), "Mesh: %s",
-                         mr->mesh ? "assigned" : "none");
+                snprintf(buf, sizeof(buf), "Model: %s",
+                         mr->model ? "assigned" : "none");
                 mu_label(ctx, buf);
-                snprintf(buf, sizeof(buf), "Material: %s",
-                         mr->material ? "assigned" : "none");
+                snprintf(buf, sizeof(buf), "Visible: %s",
+                         mr->visible ? "yes" : "no");
                 mu_label(ctx, buf);
             }
         }

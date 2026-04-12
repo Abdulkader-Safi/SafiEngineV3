@@ -46,7 +46,7 @@ typedef struct SafiApp {
 bool safi_app_init(SafiApp *app, const SafiAppDesc *desc);
 ```
 
-Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with the [stock components](../ecs/components) and the three engine pipelines, installs the `SafiInput` and `SafiTime` singletons, and optionally boots the MicroUI overlay. Returns `false` on failure; check `SDL_GetError()` for details.
+Creates the window, initialises SDL_gpu, builds a flecs world pre-populated with the [stock components](../ecs/components), the three engine pipelines, and the engine-owned [render system](../render/overview) on `EcsOnStore`. Installs the `SafiInput` and `SafiTime` singletons, and optionally boots the MicroUI overlay. Returns `false` on failure; check `SDL_GetError()` for details.
 
 ### `safi_app_run`
 

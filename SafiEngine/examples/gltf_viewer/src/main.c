@@ -19,7 +19,6 @@
 #include "demo_state.h"
 #include "scene.h"
 #include "systems/control_system.h"
-#include "systems/render_system.h"
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -43,8 +42,8 @@ int main(int argc, char **argv) {
 
   ecs_world_t *world = safi_app_world(&app);
 
-  /* Register user systems. The app pointer goes through ctx so
-   * render_system can reach the renderer without a global. */
+  /* Register user systems. The engine's render system is registered
+   * automatically by safi_app_init — only game logic goes here. */
   ecs_system(world,
              {
                  .entity = ecs_entity(
@@ -52,13 +51,6 @@ int main(int argc, char **argv) {
                              .add = ecs_ids(ecs_dependson(EcsOnUpdate))}),
                  .callback = control_system,
              });
-  ecs_system(world, {
-                        .entity = ecs_entity(
-                            world, {.name = "render_system",
-                                    .add = ecs_ids(ecs_dependson(EcsOnStore))}),
-                        .callback = render_system,
-                        .ctx = &app,
-                    });
 
   safi_app_run(&app);
 

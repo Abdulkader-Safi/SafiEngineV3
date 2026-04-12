@@ -5,6 +5,7 @@
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
 #include "safi/input/input.h"
+#include "safi/render/render_system.h"
 #include "safi/ui/debug_ui.h"
 
 #include <SDL3/SDL.h>
@@ -47,6 +48,9 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     app->fixed_max_steps   = desc->fixed_max_steps > 0    ? desc->fixed_max_steps : 4;
     app->fixed_accumulator = 0.0f;
     app->fixed_elapsed     = 0.0f;
+
+    /* Register engine-owned render system on EcsOnStore. */
+    safi_render_system_init(app->world, app);
 
     app->running      = true;
     app->last_ticks_ns = SDL_GetTicksNS();

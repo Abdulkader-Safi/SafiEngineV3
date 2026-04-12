@@ -53,19 +53,27 @@ typedef struct SafiCamera {
 `SafiCamera` exists as a component but projection is computed in the demo, not by the engine. Orthographic projection is not supported. There is no camera priority, viewport, or multi-camera system. See [Camera System](./camera).
 :::
 
+## `SafiActiveCamera`
+
+```c
+typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
+```
+
+Tag component — marks which camera the engine renders from. Attach to exactly one entity that also has `SafiCamera`. The engine's render system finds the active camera via `(SafiCamera, SafiActiveCamera)` query.
+
 ## `SafiMeshRenderer`
 
 ```c
 typedef struct SafiMeshRenderer {
-    SafiMesh     *mesh;
-    SafiMaterial *material;
+    SafiModel *model;     /* non-owning; lifetime managed by the app */
+    bool       visible;
 } SafiMeshRenderer;
 ```
 
-The render system queries `(SafiTransform, SafiMeshRenderer)` and issues one draw call per matching entity.
+The engine's render system queries `(SafiGlobalTransform, SafiMeshRenderer)` and issues one `safi_model_draw_lit` call per visible entity. Set `visible = false` to skip rendering without removing the component.
 
 :::warning WIP — Asset handles
-`SafiMeshRenderer` stores raw `SafiMesh*` / `SafiMaterial*` pointers. A proper asset handle system with caching, deduplication, and lifetime management is not yet implemented. See [Asset System](../render/assets).
+`SafiMeshRenderer` stores a raw `SafiModel*` pointer. A proper asset handle system with caching, deduplication, and lifetime management is not yet implemented. See [Asset System](../render/assets).
 :::
 
 ## `SafiName`

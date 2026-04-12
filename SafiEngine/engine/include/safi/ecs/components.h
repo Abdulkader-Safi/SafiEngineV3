@@ -67,13 +67,17 @@ typedef struct SafiCamera {
     mat4  proj;
 } SafiCamera;
 
+/* ---- ActiveCamera ------------------------------------------------------- *
+ * Tag component — marks which camera the engine renders from. Attach to
+ * exactly one entity that also has SafiCamera. */
+typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
+
 /* ---- MeshRenderer ------------------------------------------------------- */
-struct SafiMesh;
-struct SafiMaterial;
+struct SafiModel;
 
 typedef struct SafiMeshRenderer {
-    struct SafiMesh     *mesh;
-    struct SafiMaterial *material;
+    struct SafiModel *model;     /* non-owning; lifetime managed by the app */
+    bool              visible;
 } SafiMeshRenderer;
 
 /* ---- Name --------------------------------------------------------------- */
@@ -134,6 +138,7 @@ typedef struct SafiSkyLight {
 extern ECS_COMPONENT_DECLARE(SafiTransform);
 extern ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
+extern ECS_COMPONENT_DECLARE(SafiActiveCamera);
 extern ECS_COMPONENT_DECLARE(SafiMeshRenderer);
 extern ECS_COMPONENT_DECLARE(SafiName);
 extern ECS_COMPONENT_DECLARE(SafiSpin);
