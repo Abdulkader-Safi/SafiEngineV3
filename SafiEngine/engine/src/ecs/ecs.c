@@ -1,6 +1,7 @@
 #include "safi/ecs/ecs.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
+#include "safi/ecs/transform.h"
 
 ecs_entity_t SafiFixedUpdate = 0;
 
@@ -11,6 +12,7 @@ static ecs_entity_t g_render_pipeline   = 0;
 ecs_world_t *safi_ecs_create(void) {
     ecs_world_t *world = ecs_init();
     safi_register_builtin_components(world);
+    safi_transform_register(world);
 
     /* Custom fixed-update phase. Intentionally NOT chained via EcsDependsOn
      * to any default phase — that keeps it out of the default flecs

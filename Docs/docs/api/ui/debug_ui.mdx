@@ -32,7 +32,13 @@ The engine provides two ready-to-use panels via `safi_debug_ui_draw_panels`. No 
 
 ### Scene hierarchy
 
-Positioned on the **left side** of the window. Lists every entity that has a `SafiName` component. Clicking an entry selects it for the Inspector. The selected entity is highlighted with a distinct button color.
+Positioned on the **left side** of the window. Displays every entity with a `SafiName` component as a **collapsible tree** that respects `EcsChildOf` hierarchy:
+
+- **Root entities** (no parent) appear at the top level.
+- **Child entities** appear indented under their parent with an arrow toggle.
+- Clicking the **arrow** (`>` / `v`) expands or collapses a parent's subtree.
+- Clicking the **entity name** selects it for the Inspector.
+- The selected entity is highlighted with a distinct button color.
 
 ### Inspector
 

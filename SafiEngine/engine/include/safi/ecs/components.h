@@ -32,6 +32,31 @@ static inline SafiTransform safi_transform_identity(void) {
     return t;
 }
 
+/* Compose a TRS model matrix from a local transform. The result equals
+ * T * R * S, matching the convention used throughout the engine (column
+ * vectors on the right). */
+static inline void safi_transform_to_mat4(const SafiTransform *xf, mat4 out) {
+    glm_mat4_identity(out);
+    glm_translate(out, (float *)xf->position);
+    mat4 rot;
+    glm_quat_mat4((float *)xf->rotation, rot);
+    glm_mat4_mul(out, rot, out);
+    glm_scale(out, (float *)xf->scale);
+}
+
+/* ---- GlobalTransform ---------------------------------------------------- *
+ * World-space model matrix. Written every frame by the transform
+ * propagation system (see engine/src/ecs/transform.c) on EcsPostUpdate.
+ * Renderers and physics read this instead of rebuilding a matrix from
+ * SafiTransform.
+ *
+ * Opt-in: entities only get a world transform if they explicitly carry
+ * SafiGlobalTransform. Entities with only SafiTransform are ignored by
+ * the propagation pass. */
+typedef struct SafiGlobalTransform {
+    mat4 matrix;
+} SafiGlobalTransform;
+
 /* ---- Camera ------------------------------------------------------------- */
 typedef struct SafiCamera {
     float fov_y_radians;
@@ -107,6 +132,7 @@ typedef struct SafiSkyLight {
 
 /* ---- Component declarations (defined in engine/src/ecs/components.c) ---- */
 extern ECS_COMPONENT_DECLARE(SafiTransform);
+extern ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
 extern ECS_COMPONENT_DECLARE(SafiMeshRenderer);
 extern ECS_COMPONENT_DECLARE(SafiName);

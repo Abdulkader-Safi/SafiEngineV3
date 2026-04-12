@@ -14,9 +14,9 @@ void render_system(ecs_iter_t *it) {
     return;
 
   SafiCamera *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
-  SafiTransform *xf =
-      ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
-  if (!cam || !xf) {
+  SafiGlobalTransform *gt =
+      ecs_get_mut(it->world, g_demo.model_entity, SafiGlobalTransform);
+  if (!cam || !gt) {
     safi_renderer_end_frame(r);
     return;
   }
@@ -38,12 +38,9 @@ void render_system(ecs_iter_t *it) {
   float aspect = (float)r->swapchain_w / (float)r->swapchain_h;
   glm_perspective(cam->fov_y_radians, aspect, cam->z_near, cam->z_far, proj);
 
-  glm_mat4_identity(model_mat);
-  glm_translate(model_mat, xf->position);
-  mat4 rot;
-  glm_quat_mat4(xf->rotation, rot);
-  glm_mat4_mul(model_mat, rot, model_mat);
-  glm_scale(model_mat, xf->scale);
+  /* World-space model matrix comes from the engine's transform
+   * propagation system (EcsPostUpdate) — no inline TRS math here. */
+  glm_mat4_copy(gt->matrix, model_mat);
 
   glm_mat4_mul(proj, view, mvp);
   glm_mat4_mul(mvp, model_mat, mvp);

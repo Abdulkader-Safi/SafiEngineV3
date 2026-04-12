@@ -733,6 +733,99 @@ static void s_property_vec3(mu_Context *ctx, const char *label,
     s_number_cell(ctx, &xyz[2], step);
 }
 
+/* ---- Scene tree expand/collapse state ---------------------------------- */
+#define SCENE_NODE_CAP 256
+static bool s_scene_expanded[SCENE_NODE_CAP];
+static bool s_scene_expanded_init = false;
+
+static bool scene_is_expanded(ecs_entity_t e) {
+    return s_scene_expanded[(uint32_t)e % SCENE_NODE_CAP];
+}
+static void scene_toggle_expanded(ecs_entity_t e) {
+    s_scene_expanded[(uint32_t)e % SCENE_NODE_CAP] ^= 1;
+}
+
+/* Recursively draw an entity node in the Scene hierarchy panel.
+ *
+ * Parent entities (those with EcsChildOf children) get a small arrow
+ * toggle to collapse/expand their subtree. Clicking the arrow
+ * toggles expansion; clicking the name button selects the entity.
+ * Leaf entities render as a plain button with no arrow. */
+static void draw_scene_entity(mu_Context *ctx, ecs_world_t *world,
+                              ecs_entity_t e, int depth) {
+    const SafiName *name = ecs_get(world, e, SafiName);
+    if (!name) return;
+
+    if (!s_scene_expanded_init) {
+        memset(s_scene_expanded, 1, sizeof(s_scene_expanded));
+        s_scene_expanded_init = true;
+    }
+
+    /* Collect named children into a stack buffer. */
+    #define MAX_SCENE_CHILDREN 64
+    ecs_entity_t children[MAX_SCENE_CHILDREN];
+    int child_count = 0;
+    {
+        ecs_iter_t cit = ecs_children(world, e);
+        while (ecs_children_next(&cit) && child_count < MAX_SCENE_CHILDREN) {
+            for (int i = 0; i < cit.count && child_count < MAX_SCENE_CHILDREN; i++) {
+                if (ecs_get(world, cit.entities[i], SafiName)) {
+                    children[child_count++] = cit.entities[i];
+                }
+            }
+        }
+    }
+    bool has_children = (child_count > 0);
+    int indent = depth * 14;
+    int arrow_w = has_children ? 18 : 0;
+
+    /* Build the layout row: [indent spacer?] [arrow?] [name button] */
+    if (indent > 0 && has_children) {
+        mu_layout_row(ctx, 3, (int[]){ indent, arrow_w, -1 }, 22);
+        mu_layout_next(ctx); /* skip indent spacer */
+    } else if (indent > 0) {
+        mu_layout_row(ctx, 2, (int[]){ indent, -1 }, 22);
+        mu_layout_next(ctx); /* skip indent spacer */
+    } else if (has_children) {
+        mu_layout_row(ctx, 2, (int[]){ arrow_w, -1 }, 22);
+    } else {
+        mu_layout_row(ctx, 1, (int[]){ -1 }, 22);
+    }
+
+    /* Arrow toggle (only for parent entities). */
+    if (has_children) {
+        mu_push_id(ctx, &e, sizeof(e));
+        if (mu_button(ctx, scene_is_expanded(e) ? "v" : ">")) {
+            scene_toggle_expanded(e);
+        }
+        mu_pop_id(ctx);
+    }
+
+    /* Entity name button with selection highlight. */
+    bool is_sel = (e == S.selected_entity);
+    if (is_sel) {
+        ctx->style->colors[MU_COLOR_BUTTON]      = mu_color(60, 60, 140, 255);
+        ctx->style->colors[MU_COLOR_BUTTONHOVER] = mu_color(70, 70, 160, 255);
+        ctx->style->colors[MU_COLOR_BUTTONFOCUS] = mu_color(80, 80, 180, 255);
+    }
+    if (mu_button(ctx, name->value)) {
+        S.selected_entity = e;
+    }
+    if (is_sel) {
+        ctx->style->colors[MU_COLOR_BUTTON]      = mu_color(75, 75, 75, 255);
+        ctx->style->colors[MU_COLOR_BUTTONHOVER] = mu_color(95, 95, 95, 255);
+        ctx->style->colors[MU_COLOR_BUTTONFOCUS] = mu_color(115, 115, 115, 255);
+    }
+
+    /* Recurse into children if expanded. */
+    if (has_children && scene_is_expanded(e)) {
+        for (int c = 0; c < child_count; c++) {
+            draw_scene_entity(ctx, world, children[c], depth + 1);
+        }
+    }
+    #undef MAX_SCENE_CHILDREN
+}
+
 void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     if (!S.initialized) return;
     mu_Context *ctx = &S.ctx;
@@ -740,28 +833,19 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
 
     /* ---- Scene Hierarchy (left side) --------------------------------- */
     if (mu_begin_window(ctx, "Scene", mu_rect(20, 20, 200, 400))) {
+        /* Walk the SafiName query, but only draw ROOT entities here —
+         * children are picked up via draw_scene_entity's recursion so
+         * they appear indented under their parent. */
         ecs_query_t *q = ecs_query(world, {
             .terms = {{ .id = ecs_id(SafiName) }},
             .cache_kind = EcsQueryCacheNone,
         });
         ecs_iter_t qit = ecs_query_iter(world, q);
         while (ecs_query_next(&qit)) {
-            const SafiName *names = ecs_field(&qit, SafiName, 0);
             for (int i = 0; i < qit.count; i++) {
-                mu_layout_row(ctx, 1, (int[]){ -1 }, 22);
-                bool is_sel = (qit.entities[i] == S.selected_entity);
-                if (is_sel) {
-                    ctx->style->colors[MU_COLOR_BUTTON]       = mu_color(60, 60, 140, 255);
-                    ctx->style->colors[MU_COLOR_BUTTONHOVER]   = mu_color(70, 70, 160, 255);
-                    ctx->style->colors[MU_COLOR_BUTTONFOCUS]   = mu_color(80, 80, 180, 255);
-                }
-                if (mu_button(ctx, names[i].value)) {
-                    S.selected_entity = qit.entities[i];
-                }
-                if (is_sel) {
-                    ctx->style->colors[MU_COLOR_BUTTON]       = mu_color(75, 75, 75, 255);
-                    ctx->style->colors[MU_COLOR_BUTTONHOVER]   = mu_color(95, 95, 95, 255);
-                    ctx->style->colors[MU_COLOR_BUTTONFOCUS]   = mu_color(115, 115, 115, 255);
+                ecs_entity_t e = qit.entities[i];
+                if (ecs_get_target(world, e, EcsChildOf, 0) == 0) {
+                    draw_scene_entity(ctx, world, e, 0);
                 }
             }
         }

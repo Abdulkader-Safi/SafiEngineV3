@@ -9,7 +9,10 @@ description: Local and global transform propagation through the entity hierarchy
 #include <safi/ecs/components.h>
 ```
 
-SafiEngine represents spatial data with `SafiTransform`, a component that stores local position, rotation, and scale. Every entity that needs to exist in 3D space carries one.
+SafiEngine represents spatial data with two transform components:
+
+- **`SafiTransform`** — local position, rotation, and scale.
+- **`SafiGlobalTransform`** — world-space model matrix, written automatically by the engine's propagation system.
 
 ## Local transform
 
@@ -21,11 +24,24 @@ typedef struct SafiTransform {
 } SafiTransform;
 
 static inline SafiTransform safi_transform_identity(void);
+static inline void safi_transform_to_mat4(const SafiTransform *xf, mat4 out);
 ```
 
 `safi_transform_identity()` returns zero position, identity quaternion, and unit scale.
 
-## Example
+`safi_transform_to_mat4()` composes a TRS model matrix (`T * R * S`) from a local transform. Used internally by the propagation system.
+
+## Global transform
+
+```c
+typedef struct SafiGlobalTransform {
+    mat4 matrix;
+} SafiGlobalTransform;
+```
+
+A world-space model matrix. Written every frame by an engine-owned propagation system on `EcsPostUpdate`. Renderers and physics read this instead of rebuilding a matrix from `SafiTransform`.
+
+**Opt-in:** entities only get a world transform if they explicitly carry `SafiGlobalTransform`. Add it alongside `SafiTransform`:
 
 ```c
 ecs_entity_t e = ecs_new(world);
@@ -34,17 +50,59 @@ ecs_set(world, e, SafiTransform, {
     .rotation = {0, 0, 0, 1},
     .scale    = {1, 1, 1},
 });
+ecs_set(world, e, SafiGlobalTransform, {0}); // populated on first tick
 ```
 
-:::warning WIP — Global transform & hierarchy
-The following are not yet implemented:
-- **`SafiGlobalTransform`** — no world-space transform component exists; model matrices are built ad hoc in user code
-- **Hierarchy propagation** — parent/child relationships exist via flecs, but transforms are not propagated through the hierarchy
-- **Change tracking** — no dirty flags or change-driven recomputation; `ecs_modified` must be called manually
+## Hierarchy propagation
+
+The propagation system uses flecs' cascade traversal on `EcsChildOf` to visit entities parents-before-children in a single pass. For each entity:
+
+- **Root** (no parent): `global.matrix = local TRS`
+- **Child**: `global.matrix = parent.global.matrix * local TRS`
+
+Parent a child entity using flecs' built-in `EcsChildOf` relationship:
+
+```c
+ecs_entity_t child = ecs_new(world);
+ecs_set(world, child, SafiTransform, {
+    .position = {1.5f, 0, 0},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {0.3f, 0.3f, 0.3f},
+});
+ecs_set(world, child, SafiGlobalTransform, {0});
+ecs_add_pair(world, child, EcsChildOf, parent_entity);
+```
+
+The child's `SafiGlobalTransform.matrix` will contain the parent's world pose composed with its local offset. Rotating the parent causes the child to orbit around it.
+
+### Phase ordering
+
+The propagation system runs on `EcsPostUpdate` inside the variable-rate pipeline:
+
+```text
+EcsOnUpdate (user controls mutate SafiTransform)
+  → EcsPostUpdate (propagation writes SafiGlobalTransform)
+    → [SafiFixedUpdate × N] (physics reads world-space data)
+      → EcsOnStore (render reads SafiGlobalTransform.matrix)
+```
+
+No one-frame lag: user input in `OnUpdate` is reflected in `SafiGlobalTransform` in the same tick before the render stage.
+
+### Registration
+
+The propagation system is registered automatically by `safi_ecs_create`. Apps that bring their own world can call `safi_transform_register(world)` directly (requires stock components to be registered first).
+
+:::warning WIP — Change tracking
+No dirty flags or change-driven recomputation exists. The propagation system rewrites every `SafiGlobalTransform` every frame, which is fine for hundreds of entities. Lazy propagation is a future optimization.
 :::
+
+## Scene panel hierarchy
+
+The debug UI's Scene panel renders entities as a collapsible tree. Parent entities (those with `EcsChildOf` children) show an arrow toggle to expand/collapse their subtree. Children appear indented under their parent.
 
 ## See also
 
 - [Stock components](./components)
 - [ECS Overview](./overview)
+- [Scheduler & Stages](../core/scheduler) — pipeline ordering
 - [Render Overview](../render/overview)

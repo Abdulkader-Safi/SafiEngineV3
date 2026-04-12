@@ -15,19 +15,26 @@ Every world created by `safi_ecs_create` (or `safi_app_init`) has these register
 
 ```c
 typedef struct SafiTransform {
-    vec3   position;   // world-space translation
+    vec3   position;   // local translation
     versor rotation;   // quaternion (x, y, z, w)
     vec3   scale;
 } SafiTransform;
 
 static inline SafiTransform safi_transform_identity(void);
+static inline void safi_transform_to_mat4(const SafiTransform *xf, mat4 out);
 ```
 
-Use `safi_transform_identity()` for a sensible default (zero position, unit quaternion, unit scale).
+Use `safi_transform_identity()` for a sensible default (zero position, unit quaternion, unit scale). `safi_transform_to_mat4()` composes a TRS model matrix.
 
-:::warning WIP — Transform system
-`SafiTransform` stores local position/rotation/scale but there is no engine transform system yet. `GlobalTransform` does not exist, hierarchy propagation is not implemented, and change tracking is absent. World-space matrices are built manually in user code. See [Transform System](./transform).
-:::
+## `SafiGlobalTransform`
+
+```c
+typedef struct SafiGlobalTransform {
+    mat4 matrix;
+} SafiGlobalTransform;
+```
+
+World-space model matrix. Written automatically each frame by the engine's [transform propagation system](./transform). Add it alongside `SafiTransform` on any entity that needs a world-space pose (renderable meshes, physics bodies, etc.).
 
 ## `SafiCamera`
 
@@ -67,7 +74,7 @@ The render system queries `(SafiTransform, SafiMeshRenderer)` and issues one dra
 typedef struct SafiName { const char *value; } SafiName;
 ```
 
-Optional debug-display name; the ImGui inspector shows it.
+Optional debug-display name; the MicroUI inspector shows it.
 
 ## `SafiSpin`
 

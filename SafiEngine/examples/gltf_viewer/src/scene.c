@@ -30,6 +30,7 @@ bool scene_setup(SafiApp *app) {
               .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
               .scale = {1.0f, 1.0f, 1.0f},
           });
+  ecs_set(world, g_demo.model_entity, SafiGlobalTransform, {0});
   ecs_set(world, g_demo.model_entity, SafiName, {.value = "Model"});
 
   /* Spawn the camera. */
@@ -64,6 +65,21 @@ bool scene_setup(SafiApp *app) {
 
   /* Default selection for the inspector. */
   safi_debug_ui_select_entity(g_demo.model_entity);
+
+  /* TEMP: smoke-test the cascade traversal. A child entity parented
+   * under the model at local +1.5 X. Its SafiGlobalTransform should
+   * contain the parent's world pose composed with its local offset.
+   * Removed after verification. */
+  ecs_entity_t child = ecs_new(world);
+  ecs_set(world, child, SafiTransform,
+          {
+              .position = {1.5f, 0.0f, 0.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {0.3f, 0.3f, 0.3f},
+          });
+  ecs_set(world, child, SafiGlobalTransform, {0});
+  ecs_set(world, child, SafiName, {.value = "Child"});
+  ecs_add_pair(world, child, EcsChildOf, g_demo.model_entity);
 
   return true;
 }
