@@ -26,6 +26,7 @@
 #include "safi/ui/debug_ui.h"
 #include "safi/core/log.h"
 #include "safi/ecs/components.h"
+#include "safi/physics/physics.h"
 #include "safi/render/shader.h"
 
 #include <SDL3/SDL.h>
@@ -111,6 +112,25 @@ static struct {
     uint64_t last_click_time;    /* SDL ticks of last click */
 
     ecs_entity_t selected_entity;
+
+    /* Dropdown state — at most one dropdown is open at any time. The
+     * enum widget records an open-request here; the popup is rendered by
+     * s_draw_open_dropdown() after the Inspector window closes.
+     *
+     * Selections are NOT written through a saved pointer (callers often
+     * pass stack-local ints that would dangle across frames). Instead,
+     * the popup records `result_index` against `result_for_id`; the enum
+     * widget reads-and-clears the pending result on the next frame. */
+    struct {
+        mu_Id              open_id;       /* 0 = closed */
+        const char *const *names;
+        int                count;
+        mu_Rect            anchor;        /* button rect, for drop-below positioning */
+
+        bool               has_result;
+        mu_Id              result_for_id;
+        int                result_index;
+    } dropdown;
 } S;
 
 /* -- font callbacks for MicroUI ------------------------------------------- */
@@ -733,6 +753,98 @@ static void s_property_vec3(mu_Context *ctx, const char *label,
     s_number_cell(ctx, &xyz[2], step);
 }
 
+/* Label + checkbox bound to a bool. MicroUI's checkbox takes int*, so we
+ * mirror the bool through a local int. */
+static void s_property_bool(mu_Context *ctx, const char *label, bool *val) {
+    mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
+    mu_label(ctx, label);
+    int state = *val ? 1 : 0;
+    mu_checkbox(ctx, "", &state);
+    *val = (state != 0);
+}
+
+/* Label + dropdown button. Clicking the button records a "please open"
+ * request into module state; the actual popup is drawn later by
+ * s_draw_open_dropdown() after the Inspector window has ended, so the
+ * popup isn't clipped to the Inspector's body and doesn't fight its
+ * layout. */
+static void s_property_enum(mu_Context *ctx, const char *label, int *value,
+                            const char *const *names, int count) {
+    mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
+    mu_label(ctx, label);
+
+    mu_Id id = mu_get_id(ctx, &value, sizeof(value));
+
+    /* Consume a pending selection from a previous frame. */
+    if (S.dropdown.has_result && S.dropdown.result_for_id == id) {
+        *value = S.dropdown.result_index;
+        S.dropdown.has_result    = false;
+        S.dropdown.result_for_id = 0;
+    }
+
+    const char *current =
+        (*value >= 0 && *value < count) ? names[*value] : "?";
+
+    if (mu_button(ctx, current)) {
+        S.dropdown.open_id = id;
+        S.dropdown.names   = names;
+        S.dropdown.count   = count;
+        S.dropdown.anchor  = ctx->last_rect;
+    }
+}
+
+/* Renders the currently-open dropdown (if any) as a floating popup. Called
+ * once per frame, after the Inspector window's mu_end_window.
+ *
+ * We deliberately do NOT use mu_begin_popup(): its hardcoded flags
+ * include MU_OPT_AUTOSIZE (opening frame is 1x1 → invisible on first click)
+ * and MU_OPT_NOSCROLL (long lists overflow). Calling mu_begin_window_ex
+ * directly with MU_OPT_POPUP keeps microui's click-outside-to-close
+ * behavior while letting us pre-position and allow scrolling. */
+static void s_draw_open_dropdown(mu_Context *ctx) {
+    if (!S.dropdown.open_id) return;
+
+    const char *name = "safi_dropdown";
+    mu_Container *cnt = mu_get_container(ctx, name);
+
+    /* First frame of this opening: position directly below the anchor,
+     * match its width, cap height. */
+    if (!cnt->open) {
+        int row_h = 24;
+        int pad   = 12;
+        int desired_h = S.dropdown.count * row_h + pad;
+        if (desired_h > 200) desired_h = 200;
+
+        cnt->rect.x = S.dropdown.anchor.x;
+        cnt->rect.y = S.dropdown.anchor.y + S.dropdown.anchor.h;
+        cnt->rect.w = S.dropdown.anchor.w;
+        cnt->rect.h = desired_h;
+        cnt->open   = 1;
+        mu_bring_to_front(ctx, cnt);
+        /* Critical: keep hover_root on the popup so MU_OPT_POPUP's
+         * click-outside check doesn't kill it on the same frame. */
+        ctx->hover_root = ctx->next_hover_root = cnt;
+    }
+
+    int opt = MU_OPT_POPUP | MU_OPT_NOTITLE | MU_OPT_NORESIZE | MU_OPT_CLOSED;
+    if (mu_begin_window_ex(ctx, name, cnt->rect, opt)) {
+        mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+        for (int i = 0; i < S.dropdown.count; i++) {
+            if (mu_button(ctx, S.dropdown.names[i])) {
+                S.dropdown.result_for_id = S.dropdown.open_id;
+                S.dropdown.result_index  = i;
+                S.dropdown.has_result    = true;
+                S.dropdown.open_id       = 0;
+                cnt->open = 0;
+            }
+        }
+        mu_end_window(ctx);
+    } else {
+        /* click-outside closed it, or container was recycled */
+        S.dropdown.open_id = 0;
+    }
+}
+
 /* ---- Scene tree expand/collapse state ---------------------------------- */
 #define SCENE_NODE_CAP 256
 static bool s_scene_expanded[SCENE_NODE_CAP];
@@ -921,16 +1033,14 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
 
         /* ---- SafiMeshRenderer ---------------------------------------- */
         if (ecs_has(world, S.selected_entity, SafiMeshRenderer)) {
+            SafiMeshRenderer *mr = ecs_get_mut(world, S.selected_entity,
+                                               SafiMeshRenderer);
             if (mu_header_ex(ctx, "MeshRenderer", MU_OPT_EXPANDED)) {
-                const SafiMeshRenderer *mr = ecs_get(world, S.selected_entity,
-                                                      SafiMeshRenderer);
                 mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
                 snprintf(buf, sizeof(buf), "Model: %s",
                          mr->model ? "assigned" : "none");
                 mu_label(ctx, buf);
-                snprintf(buf, sizeof(buf), "Visible: %s",
-                         mr->visible ? "yes" : "no");
-                mu_label(ctx, buf);
+                s_property_bool(ctx, "Visible", &mr->visible);
             }
         }
 
@@ -940,6 +1050,47 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             if (mu_header_ex(ctx, "Spin", MU_OPT_EXPANDED)) {
                 s_property_float(ctx, "speed", &spin->speed, 0.1f);
                 s_property_vec3(ctx, "Axis", spin->axis, 0.1f);
+            }
+        }
+
+        /* ---- SafiRigidBody ------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiRigidBody)) {
+            SafiRigidBody *rb = ecs_get_mut(world, S.selected_entity,
+                                            SafiRigidBody);
+            if (mu_header_ex(ctx, "RigidBody", MU_OPT_EXPANDED)) {
+                static const char *const body_types[] = {
+                    "Static", "Dynamic", "Kinematic",
+                };
+                int type_i = (int)rb->type;
+                s_property_enum(ctx, "Type", &type_i, body_types, 3);
+                rb->type = (SafiBodyType)type_i;
+
+                s_property_float(ctx, "Mass",        &rb->mass,        0.1f);
+                s_property_float(ctx, "Friction",    &rb->friction,    0.05f);
+                s_property_float(ctx, "Restitution", &rb->restitution, 0.05f);
+            }
+        }
+
+        /* ---- SafiCollider -------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiCollider)) {
+            SafiCollider *col = ecs_get_mut(world, S.selected_entity,
+                                            SafiCollider);
+            if (mu_header_ex(ctx, "Collider", MU_OPT_EXPANDED)) {
+                static const char *const shapes[] = { "Box", "Sphere" };
+                int shape_i = (int)col->shape;
+                s_property_enum(ctx, "Shape", &shape_i, shapes, 2);
+                col->shape = (SafiColliderShape)shape_i;
+
+                switch (col->shape) {
+                case SAFI_COLLIDER_BOX:
+                    s_property_vec3(ctx, "HalfExtents",
+                                    col->box.half_extents, 0.1f);
+                    break;
+                case SAFI_COLLIDER_SPHERE:
+                    s_property_float(ctx, "Radius",
+                                     &col->sphere.radius, 0.1f);
+                    break;
+                }
             }
         }
 
@@ -1001,4 +1152,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
         mu_end_window(ctx);
     }
+
+    /* Floating dropdown (if any) — drawn as its own root container after
+     * the Inspector window so it isn't clipped by the Inspector body. */
+    s_draw_open_dropdown(ctx);
 }
