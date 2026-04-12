@@ -44,15 +44,22 @@ Positioned on the **left side** of the window. Displays every entity with a `Saf
 
 Positioned on the **right side** of the window. Displays the selected entity's name and all its stock components in collapsible sections (expanded by default):
 
-| Component          | Fields shown                                              |
-| ------------------ | --------------------------------------------------------- |
-| `SafiTransform`    | Position (x/y/z), Rotation (euler degrees), Scale (x/y/z) |
-| `SafiCamera`       | FOV (degrees), Near, Far, Target (x/y/z)                  |
-| `SafiMeshRenderer` | Mesh and Material assignment status                       |
-| `SafiSpin`         | Speed (rad/s), Axis (x/y/z)                               |
-| All 5 light types  | Color (r/g/b), Intensity, type-specific params            |
+| Component          | Fields shown                                                               |
+| ------------------ | -------------------------------------------------------------------------- |
+| `SafiTransform`    | Position (x/y/z), Rotation (euler degrees), Scale (x/y/z)                  |
+| `SafiCamera`       | FOV (degrees), Near, Far, Target (x/y/z)                                   |
+| `SafiMeshRenderer` | Model assignment status (read-only), Visible (checkbox)                    |
+| `SafiSpin`         | Speed (rad/s), Axis (x/y/z)                                                |
+| `SafiRigidBody`    | Type (dropdown: Static / Dynamic / Kinematic), Mass, Friction, Restitution |
+| `SafiCollider`     | Shape (dropdown: Box / Sphere), HalfExtents (x/y/z) or Radius              |
+| All 5 light types  | Color (r/g/b), Intensity, type-specific params                             |
 
-Vec3 properties (position, rotation, scale, color, direction) display as a label with three editable number cells in a single row. Number fields support **drag to scrub** and **double-click to type** a value directly.
+Property widgets:
+
+- **Number fields** — drag to scrub, double-click to type a value directly.
+- **Vec3 rows** — label + three number cells in a single row.
+- **Checkboxes** — bool fields (e.g. `MeshRenderer.Visible`).
+- **Dropdowns** — enum fields render as a button showing the current value; clicking drops a scrollable list below the button. Only one dropdown can be open at a time; clicking outside dismisses it.
 
 Only components present on the selected entity are shown.
 
