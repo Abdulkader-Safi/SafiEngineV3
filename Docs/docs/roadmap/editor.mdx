@@ -1,0 +1,132 @@
+---
+title: Editor Plan
+description: Milestone-by-milestone plan for turning SafiEngine's debug UI into a full game editor.
+---
+
+# Editor Plan
+
+SafiEngine already ships a MicroUI debug overlay with a Scene hierarchy, an editable Inspector (numbers, vec3s, checkboxes, dropdowns), physics components, and an engine-owned render stage. The editor is the natural extension: the same in-process UI grows into a tool that lets you **build, play, and ship a game without writing C bootstrap code for every scene**.
+
+The editor is **not a separate application**. It is a set of systems and panels that run in the same process as the game, behind the same `enable_debug_ui` flag that already gates the Inspector.
+
+## Design principles
+
+- **One binary, two modes** — "Edit" and "Play". Edit mode pauses fixed update and game systems; Play mode runs them. No separate editor process, no IPC.
+- **Data in ECS, not in the editor** — every piece of scene state lives in flecs components. The editor only reads/writes components; it never keeps a parallel model of the world.
+- **Undo = snapshot** — undo/redo restores a serialized snapshot of affected entities rather than reverse-applying ops. Simpler, fewer edge cases, and it composes with physics state.
+- **Stay in C** — the editor is implemented in the same engine C code, using MicroUI and the existing render stack. No ImGui, no C++ bindings, no second UI toolkit.
+- **Author scenes as files** — the source of truth for a level is a scene file on disk, not code. Games ship as `engine_binary + assets/ + scenes/`.
+
+## Current foundation (already shipped)
+
+- **Scene hierarchy panel** — entities listed by `SafiName`, nested by `EcsChildOf`, click-to-select. ([Debug UI](/api/ui/debug_ui))
+- **Inspector panel** — collapsible sections per component, editable number / vec3 / checkbox / dropdown widgets. Covers Transform, Camera, MeshRenderer, Spin, RigidBody, Collider, and all 5 light types.
+- **Engine-owned render stage** — the render pipeline is a set of ECS systems on the render phase; editor systems can insert overlays (gizmos, wireframes) without forking the renderer. ([Render Overview](/api/render/overview))
+- **Fixed timestep** — `SafiFixedUpdate` is separate from the variable update, so pausing physics is just "don't run fixed update". ([Scheduler](/api/core/scheduler))
+- **Physics integration** — Jolt bodies driven by `SafiRigidBody` + `SafiCollider`, transform sync in both directions. ([Physics](/api/ecs/physics))
+
+## Milestones
+
+### M1 — Play / Pause / Stop (foundation)
+
+The single most important editor feature. Without it, nothing else feels like an editor.
+
+- **Toolbar panel** with three buttons: `▶` Play, `⏸` Pause, `⏹` Stop.
+- **Edit mode (default)**: fixed update is skipped; gameplay systems (user systems registered via a new `SafiGamePhase` tag) are skipped; render + transform propagation still run so the scene is visible; physics bodies are paused but their components stay editable in the Inspector.
+- **Play mode**: before entering, snapshot every entity that carries at least one user-mutable component (Transform, RigidBody velocity, etc.) into a side buffer. Enable fixed update and game systems.
+- **Stop**: disable fixed update, restore entities from the snapshot. Pause just toggles the schedule without snapshotting.
+
+**What needs to land**
+
+1. A `SafiEditorState` singleton with `{ mode: Edit | Play | Paused }`.
+2. Gate `SafiFixedUpdate` and (new) `SafiGamePhase` on `state.mode == Play`.
+3. A snapshot helper that serializes selected entities to an in-memory buffer and restores them (reuses the scene serialization format from M2).
+4. Toolbar buttons in the debug UI.
+
+### M2 — Scene serialization
+
+Save / load what's in the world to disk so work survives a restart.
+
+- **Format**: JSON, one file per scene. Each entry = `{ name, parent?, components: { SafiTransform: {...}, SafiMeshRenderer: { model: "asset://meshes/box.glb" }, ... } }`.
+- **Mesh / material references** are string asset URIs, resolved through the asset handle system (M3).
+- **Writer**: walks every entity with a `SafiName`, emits components via a per-component registry `{ id → to_json / from_json }`.
+- **Reader**: creates entities, looks up asset URIs, attaches components in dependency order (Transform before GlobalTransform, RigidBody before Collider registration, etc.).
+- **Not in scope**: cross-scene references, binary format, versioning. A schema bump = "bump the version field and rewrite the loader".
+
+**Menu**: `File → New Scene / Open… / Save / Save As…` in a top menu bar.
+
+### M3 — Asset handle system & asset browser
+
+Scenes must reference assets by a stable id, not by a live pointer.
+
+- **`SafiAssetHandle<T>`** — opaque 64-bit id, one slot per asset type (mesh, material, texture, shader). Handles are resolvable through a central registry that caches loaded assets and deduplicates by path.
+- **Asset browser panel** — grid or tree view of the `assets/` directory. Double-click to preview (mesh in a mini viewport; texture as a swatch). Drag a row onto an Inspector field to assign.
+- **Hot-reload** hook: watch `assets/` with SDL's filesystem notifications; on change, re-upload the GPU resource and patch every handle. Out of scope for MVP; stub the API.
+
+### M4 — Viewport gizmos & editor camera
+
+Direct manipulation in the 3D viewport — the part that makes the editor feel like an editor rather than a form filler.
+
+- **Editor camera** — a fly-cam with WASD + right-mouse-look, owned by a dedicated `SafiEditorCamera` entity. Becomes the active camera when in Edit mode; Play mode switches to whatever entity has `SafiActiveCamera`.
+- **Translate gizmo** — three axis-aligned arrows at the selected entity's world position. Drag an arrow → raycast from mouse onto the axis line, update `Transform.position`.
+- **Rotate gizmo** — three orthogonal rings; drag tangentially to spin the quaternion.
+- **Scale gizmo** — three axis handles ending in cubes; drag along axis.
+- **Mode switch**: `Q / W / E / R` for select / translate / rotate / scale, matching Unity/Unreal muscle memory.
+- **Rendering** — gizmos are drawn by a dedicated editor render system that runs after opaque geometry and reads/writes depth selectively (so handles aren't occluded).
+
+### M5 — Entity creation & component add/remove
+
+Authoring entities from scratch without C code.
+
+- **Create menu** (`+` button in the Scene panel or right-click context menu):
+  - `Empty` — just `SafiTransform + SafiName`.
+  - `Mesh` — empty + `SafiMeshRenderer` (prompts for a mesh asset).
+  - `Light → Directional / Point / Spot / Rect / Sky`.
+  - `Camera` — `SafiTransform + SafiCamera`.
+  - `Physics Body → Static Box / Dynamic Sphere / …` — transform + rigidbody + collider presets.
+- **Component panel** — each Inspector component gets an `×` in its header to remove it; bottom of Inspector has `+ Add Component…` that opens a searchable list of every registered component.
+- **Parent assignment** — drag an entity onto another in the Scene panel to re-parent; drag to the root area to unparent.
+
+### M6 — Undo / redo
+
+Snapshot-based, scoped to a small window of recent changes.
+
+- Every Inspector edit, gizmo drag, entity create/delete, and parent change pushes a snapshot of the affected entities onto a bounded ring buffer (say 64 steps).
+- `Cmd/Ctrl-Z` / `Cmd/Ctrl-Shift-Z` pop/push between stacks.
+- Gizmo drags coalesce — one snapshot at drag-start, one at drag-end, nothing in between.
+
+### M7 — Prefabs / multi-select / polish
+
+- **Multi-select** in the Scene panel with Cmd/Shift; Inspector shows shared fields only, edits apply to all.
+- **Prefabs** — save a subtree as `*.prefab.json`; instantiate by drag-and-drop into a scene. Changes to the prefab propagate unless overridden.
+- **Debug physics wireframe** — hook Jolt's debug renderer into the editor render system.
+- **Performance panel** — frame time, draw call count, physics step time, entity count.
+
+### M8 — Build & ship
+
+The part that closes the loop from "I edited something" to "I can hand this to a player".
+
+- **`File → Build…`** packages: the engine binary, the `assets/` folder (only files referenced by any scene), the `scenes/` folder, and a tiny `bootstrap.json` naming the first scene.
+- The produced binary launches with `enable_debug_ui = false`, loads `bootstrap.json`, and plays immediately.
+- Platforms in scope for MVP: macOS (Intel + ARM). Windows and Linux follow the same pattern through SDL3.
+
+## Non-goals (for now)
+
+- **Visual scripting / node graphs.** Gameplay stays in C. The editor is a level/entity tool, not a logic tool.
+- **Terrain, animation timeline, particle editors.** These are subsystems that need to exist in the engine first; the editor gets them when the engine does.
+- **Multi-user / remote editing.** Single user, local files.
+- **A separate "Game" binary.** Games ship as the same engine binary in non-debug mode plus data.
+
+## Open questions
+
+- **Gizmo interaction math** — whether to use screen-space handle picking (simple, slightly imprecise) vs. ray/line intersection (more code, exact).
+- **Undo granularity for physics** — if the user scrubs `RigidBody.mass` during Play, should that be snapshotted? Probably yes in Edit, never in Play.
+- **Asset URI scheme** — `asset://meshes/box.glb` vs. plain relative paths. Asset URIs are more flexible (multiple roots) but add indirection.
+- **Which component registry?** A macro-based one that every component opts into, or one centralized file that hand-lists components. Macro scales better but complicates the public header.
+
+## See also
+
+- [Debug UI](/api/ui/debug_ui) — the foundation panels the editor builds on
+- [Scheduler](/api/core/scheduler) — edit/play mode is implemented as a phase gate
+- [Physics](/api/ecs/physics) — what needs to pause/resume cleanly
+- [Feature Roadmap](/roadmap) — status of all engine subsystems

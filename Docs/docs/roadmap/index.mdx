@@ -134,6 +134,29 @@ Status of every engine subsystem as of the latest audit (April 2026).
 | Component inspection (Transform, Camera, MeshRenderer, Spin, Lights) | **Implemented** | [Debug UI](/api/ui/debug_ui) |
 | Custom widget support                                                | **Implemented** | [Debug UI](/api/ui/debug_ui) |
 
+## Editor
+
+The SafiEngine editor is a debug-UI–based scene authoring tool that runs in the same process as the game. See the [Editor plan](/roadmap/editor) for the full milestone breakdown.
+
+| Feature                                      | Status          | Notes                                              |
+| -------------------------------------------- | --------------- | -------------------------------------------------- |
+| Scene hierarchy panel                        | **Implemented** | Tree view with parent/child, click-to-select       |
+| Inspector with editable components           | **Implemented** | Number, vec3, checkbox, dropdown widgets           |
+| Entity selection                             | **Implemented** | Click in scene panel or programmatically           |
+| Play / Pause / Stop toolbar                  | **WIP**         | Toggles fixed-update and transform mutations       |
+| Scene serialization (save/load)              | **WIP**         | JSON or flecs-native format                        |
+| Asset browser panel                          | **WIP**         | Browse meshes, materials, textures from disk       |
+| Drag-and-drop asset assignment               | **WIP**         | Drop a mesh onto a MeshRenderer field              |
+| Viewport gizmos (translate / rotate / scale) | **WIP**         | 3D handles overlaid on selected entity             |
+| Entity creation menu                         | **WIP**         | "Create > Empty / Mesh / Light / Camera"           |
+| Component add / remove UI                    | **WIP**         | "+" button in Inspector, searchable component list |
+| Undo / redo                                  | **WIP**         | Command stack over ECS mutations                   |
+| Multi-select                                 | **WIP**         | Batch-edit shared fields                           |
+| Prefabs / entity templates                   | **WIP**         | Reusable entity blueprints                         |
+| Scene viewport camera (editor-only)          | **WIP**         | Fly-cam separate from gameplay cameras             |
+| Debug physics wireframe                      | **WIP**         | Jolt's debug renderer overlay                      |
+| Build / package menu                         | **WIP**         | Export a standalone game binary + assets           |
+
 ## Physics & Collision
 
 | Feature              | Status          | API Page                    |
@@ -154,9 +177,11 @@ Status of every engine subsystem as of the latest audit (April 2026).
 
 ## Next milestone
 
-**Scene & Asset polish** — improve the scene workflow now that physics, rendering, and transforms are engine-owned:
+**Editor MVP** — grow the debug UI into a real scene authoring tool so games can be built without writing C bootstrap code. See the [Editor plan](/roadmap/editor) for milestone details.
 
-1. Asset handle system for meshes and materials (caching, deduplication)
-2. Scene serialization / loading from file
-3. PBR material pipeline
-4. Debug physics wireframe rendering
+1. Play / Pause / Stop toolbar (wraps scheduler + component-snapshot)
+2. Scene serialization / load from file (foundation for "Save Scene")
+3. Asset browser panel + handle system (mesh/material caching, deduplication)
+4. Viewport gizmos and editor-only fly-camera
+5. Debug physics wireframe rendering
+6. PBR material pipeline (enables richer material previews in the editor)
