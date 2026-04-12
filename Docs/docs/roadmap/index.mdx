@@ -136,23 +136,27 @@ Status of every engine subsystem as of the latest audit (April 2026).
 
 ## Physics & Collision
 
-| Feature             | Status  | API Page                    |
-| ------------------- | ------- | --------------------------- |
-| Collider components | **WIP** | [Physics](/api/ecs/physics) |
-| Raycasts            | **WIP** | [Physics](/api/ecs/physics) |
-| Overlap checks      | **WIP** | [Physics](/api/ecs/physics) |
-| Kinematic bodies    | **WIP** | [Physics](/api/ecs/physics) |
-| Rigid bodies        | **WIP** | [Physics](/api/ecs/physics) |
+| Feature              | Status          | API Page                    |
+| -------------------- | --------------- | --------------------------- |
+| Jolt integration     | **Implemented** | [Physics](/api/ecs/physics) |
+| Box collider         | **Implemented** | [Physics](/api/ecs/physics) |
+| Sphere collider      | **Implemented** | [Physics](/api/ecs/physics) |
+| Static bodies        | **Implemented** | [Physics](/api/ecs/physics) |
+| Dynamic bodies       | **Implemented** | [Physics](/api/ecs/physics) |
+| Kinematic bodies     | **Implemented** | [Physics](/api/ecs/physics) |
+| Capsule collider     | **WIP**         | [Physics](/api/ecs/physics) |
+| Raycasts             | **WIP**         | [Physics](/api/ecs/physics) |
+| Overlap checks       | **WIP**         | [Physics](/api/ecs/physics) |
+| Contact callbacks    | **WIP**         | [Physics](/api/ecs/physics) |
+| Constraints / joints | **WIP**         | [Physics](/api/ecs/physics) |
 
 ---
 
 ## Next milestone
 
-**Unlit ECS Scene Renderer** — the shortest path from "draw one hard-coded model" to "render an ECS world":
+**Scene & Asset polish** — improve the scene workflow now that physics, rendering, and transforms are engine-owned:
 
-1. Add `SafiGlobalTransform` and a transform propagation system
-2. Add an engine-owned render system that queries `(SafiTransform, SafiMeshRenderer)`
-3. Add an active camera concept
-4. Render every matching entity with the current unlit material path
-
-This unlocks visibility, multi-camera, scene loading, asset handles, and lit materials without requiring PBR or physics first.
+1. Asset handle system for meshes and materials (caching, deduplication)
+2. Scene serialization / loading from file
+3. PBR material pipeline
+4. Debug physics wireframe rendering

@@ -5,6 +5,7 @@
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
 #include "safi/input/input.h"
+#include "safi/physics/physics.h"
 #include "safi/render/render_system.h"
 #include "safi/ui/debug_ui.h"
 
@@ -49,6 +50,11 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     app->fixed_accumulator = 0.0f;
     app->fixed_elapsed     = 0.0f;
 
+    /* Register engine-owned physics system on SafiFixedUpdate. */
+    if (!safi_physics_init(app->world)) {
+        SAFI_LOG_WARN("physics init failed; continuing without Jolt");
+    }
+
     /* Register engine-owned render system on EcsOnStore. */
     safi_render_system_init(app->world, app);
 
@@ -59,6 +65,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
 
 void safi_app_shutdown(SafiApp *app) {
     if (!app) return;
+    safi_physics_shutdown();
     if (app->debug_ui_enabled) safi_debug_ui_shutdown(&app->renderer);
     if (app->world)  safi_ecs_destroy(app->world);
     safi_renderer_shutdown(&app->renderer);

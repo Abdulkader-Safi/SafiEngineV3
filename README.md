@@ -14,13 +14,14 @@ SafiEngineV3/
 
 SafiEngine is a **pure-C** game engine with **zero manual dependency setup**. All you need is CMake and a C/C++ compiler — everything else is pulled in by `FetchContent` on the first configure.
 
-| Concern        | Library                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| Window + input | [SDL3](https://github.com/libsdl-org/SDL)                                                               |
-| GPU            | SDL_gpu — Metal, Vulkan, D3D12; shaders authored in HLSL, compiled to SPIR-V + MSL at build time        |
-| ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                 |
-| Math           | [cglm](https://github.com/recp/cglm)                                                                    |
-| glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)              |
+| Concern        | Library                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| Window + input | [SDL3](https://github.com/libsdl-org/SDL)                                                                      |
+| GPU            | SDL_gpu — Metal, Vulkan, D3D12; shaders authored in HLSL, compiled to SPIR-V + MSL at build time               |
+| ECS            | [flecs](https://github.com/SanderMertens/flecs) — Bevy-style in plain C                                        |
+| Math           | [cglm](https://github.com/recp/cglm)                                                                           |
+| glTF 2.0       | [cgltf](https://github.com/jkuhlmann/cgltf) + [stb_image](https://github.com/nothings/stb)                     |
+| Physics        | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — AAA rigid-body simulation, wrapped behind a C API      |
 | Debug UI       | [MicroUI](https://github.com/rxi/microui) — tiny pure-C immediate-mode UI, custom SDL_gpu batched-quad backend |
 
 The first milestone is a glTF viewer that loads `BoxTextured.glb` and lets you rotate it with the arrow keys and WASD while a MicroUI overlay shows a live transform inspector.

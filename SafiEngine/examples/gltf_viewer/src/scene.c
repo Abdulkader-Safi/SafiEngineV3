@@ -69,20 +69,51 @@ bool scene_setup(SafiApp *app) {
   /* Default selection for the inspector. */
   safi_debug_ui_select_entity(g_demo.model_entity);
 
-  /* TEMP: smoke-test the cascade traversal. A child entity parented
-   * under the model at local +1.5 X. Its SafiGlobalTransform should
-   * contain the parent's world pose composed with its local offset.
-   * Removed after verification. */
-  ecs_entity_t child = ecs_new(world);
-  ecs_set(world, child, SafiTransform,
+  /* Dynamic box that falls under gravity and lands on the ground.
+   * Parented under Model so it appears in the Scene tree, but physics
+   * operates on its world-space SafiTransform (root-entity assumption). */
+  ecs_entity_t falling = ecs_new(world);
+  ecs_set(world, falling, SafiTransform,
           {
-              .position = {1.5f, 0.0f, 0.0f},
+              .position = {0.0f, 3.0f, 0.0f},
               .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
               .scale = {0.3f, 0.3f, 0.3f},
           });
-  ecs_set(world, child, SafiGlobalTransform, {0});
-  ecs_set(world, child, SafiName, {.value = "Child"});
-  ecs_add_pair(world, child, EcsChildOf, g_demo.model_entity);
+  ecs_set(world, falling, SafiGlobalTransform, {0});
+  ecs_set(world, falling, SafiMeshRenderer,
+          {.model = &g_demo.model, .visible = true});
+  ecs_set(world, falling, SafiRigidBody, {
+      .type = SAFI_BODY_DYNAMIC,
+      .mass = 1.0f,
+      .friction = 0.5f,
+      .restitution = 0.3f,
+  });
+  ecs_set(world, falling, SafiCollider, {
+      .shape = SAFI_COLLIDER_BOX,
+      .box.half_extents = {0.15f, 0.15f, 0.15f},
+  });
+  ecs_set(world, falling, SafiName, {.value = "FallingBox"});
+
+  /* Static ground plane — thin box. */
+  ecs_entity_t ground = ecs_new(world);
+  ecs_set(world, ground, SafiTransform,
+          {
+              .position = {0.0f, -2.0f, 0.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {1.0f, 1.0f, 1.0f},
+          });
+  ecs_set(world, ground, SafiGlobalTransform, {0});
+  ecs_set(world, ground, SafiRigidBody, {
+      .type = SAFI_BODY_STATIC,
+      .mass = 0.0f,
+      .friction = 0.5f,
+      .restitution = 0.3f,
+  });
+  ecs_set(world, ground, SafiCollider, {
+      .shape = SAFI_COLLIDER_BOX,
+      .box.half_extents = {5.0f, 0.1f, 5.0f},
+  });
+  ecs_set(world, ground, SafiName, {.value = "Ground"});
 
   return true;
 }

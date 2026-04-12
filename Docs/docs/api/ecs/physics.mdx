@@ -1,37 +1,139 @@
 ---
-title: Physics & Collision
-description: Colliders, raycasts, overlap checks, and rigid bodies — not yet implemented.
+title: Physics (Jolt)
+description: Rigid-body simulation powered by Jolt Physics, driven by the SafiFixedUpdate phase.
 ---
 
 # Physics & Collision
 
+```c
+#include <safi/physics/physics.h>
+```
+
+SafiEngine's physics is powered by **[Jolt Physics](https://github.com/jrouwe/JoltPhysics)** — a AAA-proven C++ rigid-body engine (Horizon Forbidden West). The engine wraps Jolt behind a C API so user code stays pure C. A single `.cpp` bridge file in the engine handles all Jolt access.
+
+Physics runs on the `SafiFixedUpdate` phase at a stable timestep (default `1/60s`). After each step, dynamic body transforms are written back to `SafiTransform`. The transform propagation system (on `EcsPreStore`) then updates `SafiGlobalTransform` before the render stage sees them.
+
+## Components
+
+### `SafiRigidBody`
+
+```c
+typedef enum SafiBodyType {
+    SAFI_BODY_STATIC,     /* never moves; other bodies collide with it     */
+    SAFI_BODY_DYNAMIC,    /* driven by forces and gravity                  */
+    SAFI_BODY_KINEMATIC,  /* moved by user code; pushes other bodies aside */
+} SafiBodyType;
+
+typedef struct SafiRigidBody {
+    SafiBodyType type;
+    float mass;            /* kg; 0 for static                           */
+    float friction;        /* [0, 1]; default 0.5                         */
+    float restitution;     /* [0, 1]; default 0.3                         */
+    uint32_t _body_id;     /* Jolt body ID — set by the physics system    */
+    bool _registered;      /* internal — true once added to Jolt          */
+} SafiRigidBody;
+```
+
+Fields prefixed with `_` are managed by the physics system — don't write to them.
+
+### `SafiCollider`
+
+```c
+typedef enum SafiColliderShape {
+    SAFI_COLLIDER_BOX,
+    SAFI_COLLIDER_SPHERE,
+} SafiColliderShape;
+
+typedef struct SafiCollider {
+    SafiColliderShape shape;
+    union {
+        struct { float half_extents[3]; } box;
+        struct { float radius; }          sphere;
+    };
+} SafiCollider;
+```
+
+## Adding a physics entity
+
+Attach `SafiTransform`, `SafiRigidBody`, and `SafiCollider` to an entity. The physics system automatically registers it with Jolt on the next fixed step.
+
+```c
+/* Dynamic box that falls under gravity */
+ecs_entity_t crate = ecs_new(world);
+ecs_set(world, crate, SafiTransform, {
+    .position = {0, 5, 0},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {1, 1, 1},
+});
+ecs_set(world, crate, SafiGlobalTransform, {0});
+ecs_set(world, crate, SafiRigidBody, {
+    .type        = SAFI_BODY_DYNAMIC,
+    .mass        = 1.0f,
+    .friction    = 0.5f,
+    .restitution = 0.3f,
+});
+ecs_set(world, crate, SafiCollider, {
+    .shape = SAFI_COLLIDER_BOX,
+    .box.half_extents = {0.5f, 0.5f, 0.5f},
+});
+
+/* Static ground plane (thin box) */
+ecs_entity_t ground = ecs_new(world);
+ecs_set(world, ground, SafiTransform, {
+    .position = {0, -1, 0},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {1, 1, 1},
+});
+ecs_set(world, ground, SafiGlobalTransform, {0});
+ecs_set(world, ground, SafiRigidBody, {
+    .type     = SAFI_BODY_STATIC,
+    .mass     = 0,
+    .friction = 0.5f,
+});
+ecs_set(world, ground, SafiCollider, {
+    .shape = SAFI_COLLIDER_BOX,
+    .box.half_extents = {10.0f, 0.1f, 10.0f},
+});
+```
+
+## Per-tick flow
+
+The physics system runs on `SafiFixedUpdate` with four phases per tick:
+
+1. **Register** — entities with `_registered == false` get a Jolt body created from their collider shape + transform.
+2. **Push kinematic** — kinematic bodies push their `SafiTransform` into Jolt (user gameplay may have moved them in `OnUpdate`).
+3. **Step** — `safi_jolt_step(fixed_dt)` advances the simulation by one fixed timestep.
+4. **Pull dynamic** — dynamic bodies pull Jolt's computed position/rotation back into `SafiTransform`.
+
+## Frame ordering
+
+```text
+OnUpdate       (user controls mutate SafiTransform)
+FixedUpdate ×N (physics register → push → step → pull)
+PreStore       (transform propagation: SafiTransform → SafiGlobalTransform)
+OnStore        (render reads SafiGlobalTransform.matrix)
+```
+
+Propagation runs on `EcsPreStore` (render pipeline) so it captures both user-gameplay changes and physics changes before the renderer sees them.
+
+## Lifecycle
+
+Physics is initialized and shut down automatically by `safi_app_init` / `safi_app_shutdown`. Gravity defaults to `(0, -9.81, 0)`. The simulation is single-threaded (`JobSystemSingleThreaded`), adequate for hundreds of bodies.
+
 :::warning WIP — Not yet implemented
-No physics or collision subsystem exists in the engine. This page describes planned features.
-:::
 
-## Planned features
-
-### Collider components
-
-Primitive collider types (box, sphere, capsule) that attach to entities alongside `SafiTransform`. These define the collision shape for overlap and raycast queries.
-
-### Raycasts
-
-A query API to cast a ray into the world and return the first (or all) intersected collider entities, with hit position and normal.
-
-### Overlap checks
-
-Point-in-shape and shape-vs-shape overlap queries for trigger zones, area-of-effect, and proximity detection.
-
-### Kinematic bodies
-
-A basic character-controller or kinematic body that moves through the world, slides along surfaces, and responds to colliders without full rigid-body simulation.
-
-### Rigid bodies
-
-Optional dynamic rigid-body simulation for physics-driven objects (crates, projectiles, ragdolls). Likely backed by an external physics library integrated through the ECS.
+- **Capsule collider** — only box and sphere are supported
+- **Raycasts** — no query API yet
+- **Overlap / trigger checks** — no overlap query API
+- **Constraints / joints** — not exposed
+- **Contact callbacks** — no collision event system
+- **Debug wireframe** — no physics debug rendering
+- **Parented physics bodies** — all physics bodies must be root entities (no `EcsChildOf` hierarchy for physics)
+  :::
 
 ## See also
 
-- [Transform](./transform)
-- [ECS Overview](./overview)
+- [Transform System](./transform) — `SafiGlobalTransform` propagation
+- [Scheduler & Stages](../core/scheduler) — `SafiFixedUpdate` phase
+- [Time](../core/time) — `fixed_delta` and `fixed_overshoot`
+- [Stock Components](./components) — `SafiTransform`, `SafiGlobalTransform`

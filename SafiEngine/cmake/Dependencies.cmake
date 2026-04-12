@@ -145,6 +145,22 @@ add_library(microui STATIC ${microui_SOURCE_DIR}/src/microui.c)
 target_include_directories(microui PUBLIC ${microui_SOURCE_DIR}/src)
 
 # ---------------------------------------------------------------------------
+# Jolt Physics — rigid-body simulation (C++ library, wrapped in one .cpp file)
+# ---------------------------------------------------------------------------
+set(DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
+set(GENERATE_DEBUG_SYMBOLS ON CACHE BOOL "" FORCE)
+set(CROSS_PLATFORM_DETERMINISTIC OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(OBJECT_LAYER_BITS 16 CACHE STRING "" FORCE)
+
+FetchContent_Declare(JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG        v5.2.0
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  Build
+)
+FetchContent_MakeAvailable(JoltPhysics)
+
 # ---------------------------------------------------------------------------
 # ProggyClean.ttf — public-domain monospaced font for the debug UI.
 # ---------------------------------------------------------------------------

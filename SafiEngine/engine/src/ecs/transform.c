@@ -33,7 +33,7 @@ void safi_transform_register(ecs_world_t *world) {
     ecs_system(world, {
         .entity = ecs_entity(world, {
             .name = "safi_transform_propagation",
-            .add  = ecs_ids(ecs_dependson(EcsPostUpdate)),
+            .add  = ecs_ids(ecs_dependson(EcsPreStore)),
         }),
         .query.terms = {
             { .id = ecs_id(SafiTransform),       .inout = EcsIn  },

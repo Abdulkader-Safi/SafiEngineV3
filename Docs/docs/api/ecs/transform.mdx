@@ -77,16 +77,16 @@ The child's `SafiGlobalTransform.matrix` will contain the parent's world pose co
 
 ### Phase ordering
 
-The propagation system runs on `EcsPostUpdate` inside the variable-rate pipeline:
+The propagation system runs on `EcsPreStore` inside the render pipeline, after both user gameplay and physics have written to `SafiTransform`:
 
 ```text
-EcsOnUpdate (user controls mutate SafiTransform)
-  → EcsPostUpdate (propagation writes SafiGlobalTransform)
-    → [SafiFixedUpdate × N] (physics reads world-space data)
-      → EcsOnStore (render reads SafiGlobalTransform.matrix)
+EcsOnUpdate    (user controls mutate SafiTransform)
+FixedUpdate ×N (physics reads/writes SafiTransform)
+EcsPreStore    (propagation writes SafiGlobalTransform)
+EcsOnStore     (render reads SafiGlobalTransform.matrix)
 ```
 
-No one-frame lag: user input in `OnUpdate` is reflected in `SafiGlobalTransform` in the same tick before the render stage.
+This ensures the renderer sees a fully-settled world: both user-driven and physics-driven transform changes are captured before the first draw call.
 
 ### Registration
 

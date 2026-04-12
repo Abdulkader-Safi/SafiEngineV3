@@ -3,6 +3,7 @@
 
 file(GLOB_RECURSE SAFI_ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 file(GLOB_RECURSE SAFI_ENGINE_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
@@ -28,6 +29,7 @@ target_link_libraries(safi_engine
         cgltf
         stb
         microui
+        Jolt
     PRIVATE
         safi_warnings
 )
@@ -36,6 +38,8 @@ set_target_properties(safi_engine PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
 )
 
 # ---- Engine-owned shaders (HLSL -> SPIR-V + MSL) --------------------------

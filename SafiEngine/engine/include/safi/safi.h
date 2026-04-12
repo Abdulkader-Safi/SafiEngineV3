@@ -28,6 +28,8 @@
 #include "safi/render/light_system.h"
 #include "safi/render/render_system.h"
 
+#include "safi/physics/physics.h"
+
 #include "safi/ui/debug_ui.h"
 
 #endif /* SAFI_H */
