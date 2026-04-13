@@ -1,12 +1,24 @@
 # SafiEngine clangd config.
-# The engine is pure C11 — no C++ translation units.
+# The engine is pure C11 — except for one C++ bridge (jolt_wrapper.cpp).
 
+# C sources: enforce C11 + warnings.
+If:
+  PathMatch: .*\.c$
 CompileFlags:
   Add: [-std=c11, -Wall, -Wextra, -Wpedantic]
   Compiler: clang
 
 ---
+# Headers: parse as C (the engine's public API is C).
 If:
   PathMatch: .*\.h$
 CompileFlags:
-  Add: [-xc]
+  Add: [-xc, -std=c11]
+  Compiler: clang
+
+---
+# C++ sources: leave compile_commands.json flags (-std=c++17) untouched.
+If:
+  PathMatch: .*\.(cpp|cc|cxx|hpp)$
+CompileFlags:
+  Compiler: clang++

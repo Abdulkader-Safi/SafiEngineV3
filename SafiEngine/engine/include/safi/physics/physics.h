@@ -61,6 +61,44 @@ bool safi_physics_init(ecs_world_t *world);
 /* Shut down Jolt and release all resources. Called by safi_app_shutdown. */
 void safi_physics_shutdown(void);
 
+/* ---- Collision queries -------------------------------------------------- *
+ * All queries hit bodies created via (SafiRigidBody, SafiCollider). The
+ * owning ecs_entity_t is stored on each body as user data and returned
+ * directly in query results — no lookup table required. */
+
+typedef struct SafiRayHit {
+    ecs_entity_t entity;       /* entity that owns the hit body          */
+    uint32_t     body_id;      /* internal Jolt body id                  */
+    float        point[3];     /* world-space hit point                   */
+    float        normal[3];    /* world-space surface normal              */
+    float        fraction;     /* [0, 1] along the ray                    */
+} SafiRayHit;
+
+/* Closest-hit raycast. `direction` should be normalized; the ray length is
+ * `max_distance`. `ignore` is optional — pass 0 to disable (matches flecs'
+ * convention for "no entity"). Returns true if anything was hit. */
+bool safi_physics_raycast(ecs_world_t *world,
+                          const float origin[3],
+                          const float direction[3],
+                          float max_distance,
+                          ecs_entity_t ignore,
+                          SafiRayHit *out_hit);
+
+/* Overlap queries — fill `out_entities` up to `cap` and return the total
+ * number of overlapping bodies found (may exceed `cap`; callers can grow
+ * the buffer and re-query, or just cap the output). Pass rotation = NULL
+ * on box overlaps to mean identity rotation. */
+int safi_physics_overlap_box(ecs_world_t *world,
+                             const float center[3],
+                             const float half_extents[3],
+                             const float rotation[4],
+                             ecs_entity_t *out_entities, int cap);
+
+int safi_physics_overlap_sphere(ecs_world_t *world,
+                                const float center[3],
+                                float radius,
+                                ecs_entity_t *out_entities, int cap);
+
 /* ---- Component declarations --------------------------------------------- */
 extern ECS_COMPONENT_DECLARE(SafiRigidBody);
 extern ECS_COMPONENT_DECLARE(SafiCollider);

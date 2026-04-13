@@ -120,11 +120,72 @@ Propagation runs on `EcsPreStore` (render pipeline) so it captures both user-gam
 
 Physics is initialized and shut down automatically by `safi_app_init` / `safi_app_shutdown`. Gravity defaults to `(0, -9.81, 0)`. The simulation is single-threaded (`JobSystemSingleThreaded`), adequate for hundreds of bodies.
 
+## Collision queries
+
+Two query families are exposed: a closest-hit **raycast** and **box / sphere overlap** checks. Both return the owning `ecs_entity_t` of each hit body directly — no lookup table needed (the engine stores the entity as Jolt `BodyUserData` at creation time).
+
+### Raycast
+
+```c
+typedef struct SafiRayHit {
+    ecs_entity_t entity;
+    uint32_t     body_id;
+    float        point[3];
+    float        normal[3];
+    float        fraction;   /* [0, 1] along the ray */
+} SafiRayHit;
+
+bool safi_physics_raycast(ecs_world_t *world,
+                          const float origin[3],
+                          const float direction[3],
+                          float max_distance,
+                          ecs_entity_t ignore,   /* 0 to disable */
+                          SafiRayHit *out_hit);
+```
+
+`direction` must be normalized. Pass `ignore = 0` to hit everything, or the entity id of a body you want to skip (useful when casting from a character to avoid self-hits). Returns `true` and fills `out_hit` when something was hit.
+
+```c
+SafiRayHit hit;
+float origin[3]    = {0, 1, 0};
+float direction[3] = {0, -1, 0};
+if (safi_physics_raycast(world, origin, direction, 10.0f, 0, &hit)) {
+    SAFI_LOG_INFO("grounded on entity %llu at y=%.2f",
+                  (unsigned long long)hit.entity, hit.point[1]);
+}
+```
+
+### Overlap
+
+```c
+int safi_physics_overlap_box(ecs_world_t *world,
+                             const float center[3],
+                             const float half_extents[3],
+                             const float rotation[4],   /* NULL = identity */
+                             ecs_entity_t *out_entities, int cap);
+
+int safi_physics_overlap_sphere(ecs_world_t *world,
+                                const float center[3],
+                                float radius,
+                                ecs_entity_t *out_entities, int cap);
+```
+
+Returns the **total** number of overlapping bodies found; fills up to `cap` entries into `out_entities`. If the return value exceeds `cap`, grow the buffer and call again.
+
+```c
+ecs_entity_t buf[16];
+float center[3] = {0, 0, 0};
+int n = safi_physics_overlap_sphere(world, center, 2.0f, buf, 16);
+int written = n < 16 ? n : 16;
+for (int i = 0; i < written; i++)
+    SAFI_LOG_INFO("in range: entity %llu", (unsigned long long)buf[i]);
+```
+
 :::warning WIP — Not yet implemented
 
 - **Capsule collider** — only box and sphere are supported
-- **Raycasts** — no query API yet
-- **Overlap / trigger checks** — no overlap query API
+- **Layer masks / filtering** — raycasts support a single `ignore` entity; no group masks
+- **All-hits raycast** — only closest hit
 - **Constraints / joints** — not exposed
 - **Contact callbacks** — no collision event system
 - **Debug wireframe** — no physics debug rendering

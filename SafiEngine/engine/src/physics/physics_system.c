@@ -51,20 +51,21 @@ static void physics_system(ecs_iter_t *it) {
                 SafiJoltMotionType motion = map_motion(rb[i].type);
                 uint32_t id = UINT32_MAX;
 
+                uint64_t udata = (uint64_t)qit.entities[i];
                 switch (col[i].shape) {
                 case SAFI_COLLIDER_BOX:
                     id = safi_jolt_add_box(
                         col[i].box.half_extents,
                         xf[i].position, xf[i].rotation,
                         rb[i].mass, rb[i].friction, rb[i].restitution,
-                        motion);
+                        motion, udata);
                     break;
                 case SAFI_COLLIDER_SPHERE:
                     id = safi_jolt_add_sphere(
                         col[i].sphere.radius,
                         xf[i].position, xf[i].rotation,
                         rb[i].mass, rb[i].friction, rb[i].restitution,
-                        motion);
+                        motion, udata);
                     break;
                 }
 
@@ -166,4 +167,57 @@ bool safi_physics_init(ecs_world_t *world) {
 
 void safi_physics_shutdown(void) {
     safi_jolt_shutdown();
+}
+
+/* ---- Collision queries -------------------------------------------------- */
+
+bool safi_physics_raycast(ecs_world_t *world,
+                          const float origin[3],
+                          const float direction[3],
+                          float max_distance,
+                          ecs_entity_t ignore,
+                          SafiRayHit *out_hit) {
+    (void)world;
+    if (!out_hit) return false;
+
+    uint32_t ignore_body = UINT32_MAX;
+    if (ignore && world) {
+        const SafiRigidBody *rb = ecs_get(world, ignore, SafiRigidBody);
+        if (rb && rb->_registered) ignore_body = rb->_body_id;
+    }
+
+    SafiJoltRayHit jhit;
+    if (!safi_jolt_raycast(origin, direction, max_distance, ignore_body, &jhit))
+        return false;
+
+    out_hit->entity    = (ecs_entity_t)jhit.user_data;
+    out_hit->body_id   = jhit.body_id;
+    out_hit->point[0]  = jhit.point[0];
+    out_hit->point[1]  = jhit.point[1];
+    out_hit->point[2]  = jhit.point[2];
+    out_hit->normal[0] = jhit.normal[0];
+    out_hit->normal[1] = jhit.normal[1];
+    out_hit->normal[2] = jhit.normal[2];
+    out_hit->fraction  = jhit.fraction;
+    return true;
+}
+
+int safi_physics_overlap_box(ecs_world_t *world,
+                             const float center[3],
+                             const float half_extents[3],
+                             const float rotation[4],
+                             ecs_entity_t *out_entities, int cap) {
+    (void)world;
+    /* ecs_entity_t is uint64_t in flecs — cast the buffer through. */
+    return safi_jolt_overlap_box(center, half_extents, rotation,
+                                 (uint64_t *)out_entities, cap);
+}
+
+int safi_physics_overlap_sphere(ecs_world_t *world,
+                                const float center[3],
+                                float radius,
+                                ecs_entity_t *out_entities, int cap) {
+    (void)world;
+    return safi_jolt_overlap_sphere(center, radius,
+                                    (uint64_t *)out_entities, cap);
 }

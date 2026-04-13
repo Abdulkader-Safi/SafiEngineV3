@@ -34,7 +34,8 @@ uint32_t safi_jolt_add_box(
     float mass,
     float friction,
     float restitution,
-    SafiJoltMotionType motion
+    SafiJoltMotionType motion,
+    uint64_t user_data          /* opaque; round-trips through queries */
 );
 
 uint32_t safi_jolt_add_sphere(
@@ -44,7 +45,44 @@ uint32_t safi_jolt_add_sphere(
     float mass,
     float friction,
     float restitution,
-    SafiJoltMotionType motion
+    SafiJoltMotionType motion,
+    uint64_t user_data
+);
+
+/* ---- Collision queries -------------------------------------------------- */
+typedef struct SafiJoltRayHit {
+    uint32_t body_id;
+    uint64_t user_data;
+    float    point[3];
+    float    normal[3];
+    float    fraction;   /* [0, 1] along the ray */
+} SafiJoltRayHit;
+
+/* Closest-hit raycast. `ignore_body_id == UINT32_MAX` disables the filter.
+ * Returns true if anything was hit and fills `*out`. */
+bool safi_jolt_raycast(
+    const float origin[3],
+    const float direction[3],
+    float max_distance,
+    uint32_t ignore_body_id,
+    SafiJoltRayHit *out
+);
+
+/* Overlap queries. Fill up to `cap` user_data entries into `out_user_data`
+ * and return the total number of hits found (may exceed cap). */
+int safi_jolt_overlap_box(
+    const float center[3],
+    const float half_extents[3],
+    const float rotation[4],   /* nullable — NULL treated as identity */
+    uint64_t *out_user_data,
+    int cap
+);
+
+int safi_jolt_overlap_sphere(
+    const float center[3],
+    float radius,
+    uint64_t *out_user_data,
+    int cap
 );
 
 /* ---- Body operations ---------------------------------------------------- */
