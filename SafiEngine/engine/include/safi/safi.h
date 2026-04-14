@@ -30,6 +30,8 @@
 
 #include "safi/physics/physics.h"
 
+#include "safi/audio/audio.h"
+
 #include "safi/ui/debug_ui.h"
 
 #endif /* SAFI_H */

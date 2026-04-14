@@ -6,6 +6,7 @@
 #include "safi/ecs/phases.h"
 #include "safi/input/input.h"
 #include "safi/physics/physics.h"
+#include "safi/audio/audio.h"
 #include "safi/render/render_system.h"
 #include "safi/ui/debug_ui.h"
 
@@ -55,6 +56,12 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         SAFI_LOG_WARN("physics init failed; continuing without Jolt");
     }
 
+    /* Register engine-owned audio subsystem (miniaudio). Non-fatal — CI /
+     * headless hosts may have no audio device. */
+    if (!safi_audio_init(app->world)) {
+        SAFI_LOG_WARN("audio init failed; continuing without miniaudio");
+    }
+
     /* Register engine-owned render system on EcsOnStore. */
     safi_render_system_init(app->world, app);
 
@@ -65,6 +72,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
 
 void safi_app_shutdown(SafiApp *app) {
     if (!app) return;
+    safi_audio_shutdown();
     safi_physics_shutdown();
     if (app->debug_ui_enabled) safi_debug_ui_shutdown(&app->renderer);
     if (app->world)  safi_ecs_destroy(app->world);
@@ -84,6 +92,9 @@ bool safi_app_tick(SafiApp *app) {
     safi_input_pump(app->world);
     const SafiInput *in = ecs_singleton_get(app->world, SafiInput);
     if (in && in->quit_requested) app->running = false;
+
+    /* Audio: GC finished voices + republish listener snapshot. Cheap. */
+    safi_audio_update(dt);
 
     /* ---- Stage 1: variable-rate systems --------------------------------- *
      * OnLoad .. PostUpdate. User gameplay, input-driven logic, and (after

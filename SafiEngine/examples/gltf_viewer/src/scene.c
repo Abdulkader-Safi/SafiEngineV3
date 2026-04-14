@@ -11,7 +11,7 @@ bool scene_setup(SafiApp *app) {
    * Compiled shaders live in SAFI_DEMO_SHADER_DIR (see CMakeLists.txt);
    * the loader picks .spv or .msl based on the active GPU backend. */
   char model_path[1024];
-  snprintf(model_path, sizeof(model_path), "%s/models/BoxTextured.glb",
+  snprintf(model_path, sizeof(model_path), "%s/models/player.glb",
            SAFI_DEMO_ASSET_DIR);
 
   if (!safi_model_load_lit(&app->renderer, model_path, SAFI_DEMO_SHADER_DIR,
@@ -82,16 +82,18 @@ bool scene_setup(SafiApp *app) {
   ecs_set(world, falling, SafiGlobalTransform, {0});
   ecs_set(world, falling, SafiMeshRenderer,
           {.model = &g_demo.model, .visible = true});
-  ecs_set(world, falling, SafiRigidBody, {
-      .type = SAFI_BODY_DYNAMIC,
-      .mass = 1.0f,
-      .friction = 0.5f,
-      .restitution = 0.3f,
-  });
-  ecs_set(world, falling, SafiCollider, {
-      .shape = SAFI_COLLIDER_BOX,
-      .box.half_extents = {0.15f, 0.15f, 0.15f},
-  });
+  ecs_set(world, falling, SafiRigidBody,
+          {
+              .type = SAFI_BODY_DYNAMIC,
+              .mass = 1.0f,
+              .friction = 0.5f,
+              .restitution = 0.3f,
+          });
+  ecs_set(world, falling, SafiCollider,
+          {
+              .shape = SAFI_COLLIDER_BOX,
+              .box.half_extents = {0.15f, 0.15f, 0.15f},
+          });
   ecs_set(world, falling, SafiName, {.value = "FallingBox"});
 
   /* Static ground plane — thin box. */
@@ -103,17 +105,32 @@ bool scene_setup(SafiApp *app) {
               .scale = {1.0f, 1.0f, 1.0f},
           });
   ecs_set(world, ground, SafiGlobalTransform, {0});
-  ecs_set(world, ground, SafiRigidBody, {
-      .type = SAFI_BODY_STATIC,
-      .mass = 0.0f,
-      .friction = 0.5f,
-      .restitution = 0.3f,
-  });
-  ecs_set(world, ground, SafiCollider, {
-      .shape = SAFI_COLLIDER_BOX,
-      .box.half_extents = {5.0f, 0.1f, 5.0f},
-  });
+  ecs_set(world, ground, SafiRigidBody,
+          {
+              .type = SAFI_BODY_STATIC,
+              .mass = 0.0f,
+              .friction = 0.5f,
+              .restitution = 0.3f,
+          });
+  ecs_set(world, ground, SafiCollider,
+          {
+              .shape = SAFI_COLLIDER_BOX,
+              .box.half_extents = {5.0f, 0.1f, 5.0f},
+          });
   ecs_set(world, ground, SafiName, {.value = "Ground"});
+
+  /* ---- Audio ------------------------------------------------------------ */
+  char audio_path[1024];
+  snprintf(audio_path, sizeof(audio_path), "%s/audio/click.wav", SAFI_DEMO_ASSET_DIR);
+  g_demo.click_sfx = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_DECODE);
+
+  snprintf(audio_path, sizeof(audio_path), "%s/audio/ambient.wav", SAFI_DEMO_ASSET_DIR);
+  g_demo.ambient_music = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_STREAM);
+  if (g_demo.ambient_music.id) {
+    safi_audio_play(g_demo.ambient_music, safi_audio_bus_music(),
+                    /*volume*/0.3f, /*pitch*/1.0f, /*looping*/true);
+    SAFI_LOG_INFO("audio: ambient music looping on music bus at 30%%");
+  }
 
   return true;
 }

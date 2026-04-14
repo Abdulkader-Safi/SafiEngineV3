@@ -36,3 +36,15 @@ target_compile_definitions(gltf_viewer PRIVATE
     SAFI_DEMO_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     SAFI_DEMO_SHADER_DIR="${_gltf_shader_out}"
 )
+
+# ---- Copy bundled audio samples from SDL3's test tree -------------------
+# SDL3 ships public-domain WAVs in its test/ directory. Copy two into the
+# demo's assets so the audio demo works offline without downloads.
+set(_audio_dst "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio")
+file(MAKE_DIRECTORY "${_audio_dst}")
+if(EXISTS "${sdl3_SOURCE_DIR}/test/sample.wav")
+    configure_file("${sdl3_SOURCE_DIR}/test/sample.wav" "${_audio_dst}/ambient.wav" COPYONLY)
+endif()
+if(EXISTS "${sdl3_SOURCE_DIR}/test/sword.wav")
+    configure_file("${sdl3_SOURCE_DIR}/test/sword.wav" "${_audio_dst}/click.wav" COPYONLY)
+endif()

@@ -30,6 +30,7 @@ target_link_libraries(safi_engine
         stb
         microui
         Jolt
+        miniaudio
     PRIVATE
         safi_warnings
 )

@@ -1,0 +1,111 @@
+---
+title: Audio (miniaudio)
+description: Cross-platform audio playback powered by miniaudio — 2D/3D sounds, mixer buses, and streaming.
+---
+
+# Audio
+
+```c
+#include <safi/audio/audio.h>
+```
+
+SafiEngine's audio is powered by **[miniaudio](https://github.com/mackron/miniaudio)** — a single-file, MIT-licensed, cross-platform audio library with built-in WAV/FLAC/MP3 decoding, 3D spatialization, and a node-graph mixer. The engine wraps miniaudio's `ma_engine` behind a flat handle-based C API.
+
+Audio runs on miniaudio's own device callback thread. `safi_audio_update` is called once per frame from `safi_app_tick` — it GCs finished voices and publishes listener/master-volume state back to the `SafiAudio` singleton.
+
+## Concepts
+
+| Type              | What it is                                                                |
+| ----------------- | ------------------------------------------------------------------------- |
+| `SafiSoundHandle` | A loaded asset (decoded buffer or streaming source). Reusable template.   |
+| `SafiVoiceHandle` | A currently-playing instance. Control volume/pitch/position; GC'd on end. |
+| `SafiBusHandle`   | A mixer group. Voices route through a bus; buses route to parent buses.   |
+
+Four pre-baked buses exist after init: `master`, `music`, `sfx`, `ui`. The last three parent to `master`.
+
+## Lifecycle
+
+`safi_audio_init` and `safi_audio_shutdown` are called automatically by `safi_app_init` / `safi_app_shutdown`. On headless / no-device hosts, init logs a warning and the engine continues running.
+
+## Loading a sound
+
+```c
+SafiSoundHandle click   = safi_audio_load("assets/audio/click.wav",   SAFI_AUDIO_LOAD_DECODE);
+SafiSoundHandle ambient = safi_audio_load("assets/audio/ambient.ogg", SAFI_AUDIO_LOAD_STREAM);
+```
+
+`DECODE` fully loads the asset into memory (short sfx). `STREAM` streams from disk (music, long ambiences).
+
+## Playing
+
+```c
+/* 2D — no spatialization */
+SafiVoiceHandle v = safi_audio_play(click, safi_audio_bus_ui(),
+                                    /*volume*/1.0f, /*pitch*/1.0f, /*looping*/false);
+
+/* 3D — positioned in world space, attenuated by distance from the listener */
+float pos[3] = {5.0f, 0.0f, 0.0f};
+SafiVoiceHandle v3 = safi_audio_play_3d(click, safi_audio_bus_sfx(),
+                                        pos, 1.0f, 1.0f, false);
+
+/* Looping music */
+SafiVoiceHandle music = safi_audio_play(ambient, safi_audio_bus_music(),
+                                        0.3f, 1.0f, /*looping*/true);
+```
+
+Pass `SAFI_BUS_INVALID` for `bus` to fall back to the sfx bus.
+
+## Voice control
+
+```c
+safi_audio_set_voice_volume(v, 0.5f);
+safi_audio_set_voice_pitch(v, 1.2f);
+safi_audio_set_voice_position(v3, new_pos);   /* 3D voices only */
+if (safi_audio_voice_is_playing(v)) { ... }
+safi_audio_stop(v);
+```
+
+## Buses
+
+```c
+safi_audio_bus_set_volume(safi_audio_bus_music(), 0.5f);   /* half-volume music */
+
+/* Custom child bus */
+SafiBusHandle footsteps = safi_audio_bus_create("footsteps", safi_audio_bus_sfx());
+safi_audio_bus_set_volume(footsteps, 0.8f);
+```
+
+## 3D listener
+
+Call once per frame from your camera system:
+
+```c
+safi_audio_set_listener(camera_world_pos,
+                        camera_forward,
+                        camera_up);
+```
+
+## ECS singleton
+
+`SafiAudio` is a read-only snapshot for inspector / debug:
+
+```c
+const SafiAudio *a = ecs_singleton_get(world, SafiAudio);
+/* a->device_ok, a->master_volume, a->active_voices, a->loaded_sounds,
+ * a->listener_position, a->listener_forward, a->listener_up */
+```
+
+Mutate audio state through the `safi_audio_*` functions, not the singleton.
+
+:::warning WIP
+
+- **Per-bus lowpass / reverb routing** — API reserved; node-graph rewiring is a follow-up.
+- **Doppler effect** — disabled (miniaudio default).
+- **Audio streaming network sources** — only local files supported.
+  :::
+
+## See also
+
+- [App Lifecycle](../core/app) — where audio init/shutdown/update are called
+- [Input](../input/input) — pairs with audio for click/trigger sfx
+- [Physics](../ecs/physics) — `SafiRayHit.point` is a natural source for 3D impact sounds

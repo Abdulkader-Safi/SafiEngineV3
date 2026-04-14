@@ -5,7 +5,7 @@ description: Current implementation status of every SafiEngine subsystem.
 
 # Feature Roadmap
 
-Status of every engine subsystem as of the latest audit (April 2026).
+Status of every engine subsystem as of the latest audit (April 2026). Recently added: **miniaudio-powered audio** with 2D/3D playback, mixer buses, and streaming.
 
 | Badge           | Meaning                               |
 | --------------- | ------------------------------------- |
@@ -156,6 +156,20 @@ The SafiEngine editor is a debug-UI–based scene authoring tool that runs in th
 | Scene viewport camera (editor-only)          | **WIP**         | Fly-cam separate from gameplay cameras             |
 | Debug physics wireframe                      | **WIP**         | Jolt's debug renderer overlay                      |
 | Build / package menu                         | **WIP**         | Export a standalone game binary + assets           |
+
+## Audio
+
+| Feature                           | Status          | API Page                  |
+| --------------------------------- | --------------- | ------------------------- |
+| miniaudio integration             | **Implemented** | [Audio](/api/audio/audio) |
+| 2D playback (sfx + music)         | **Implemented** | [Audio](/api/audio/audio) |
+| 3D positional audio               | **Implemented** | [Audio](/api/audio/audio) |
+| Mixer buses (master/music/sfx/ui) | **Implemented** | [Audio](/api/audio/audio) |
+| Streaming (long files)            | **Implemented** | [Audio](/api/audio/audio) |
+| WAV / FLAC / MP3 decoding         | **Implemented** | [Audio](/api/audio/audio) |
+| Listener pose API                 | **Implemented** | [Audio](/api/audio/audio) |
+| Per-bus lowpass / reverb          | **WIP**         | [Audio](/api/audio/audio) |
+| Doppler                           | **WIP**         | [Audio](/api/audio/audio) |
 
 ## Physics & Collision
 

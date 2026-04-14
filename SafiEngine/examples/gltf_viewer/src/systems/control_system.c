@@ -4,6 +4,7 @@
 #include <safi/safi.h>
 #include <safi/ui/debug_ui.h>
 
+#include <microui.h>
 #include <SDL3/SDL.h>
 
 void control_system(ecs_iter_t *it) {
@@ -57,13 +58,26 @@ void control_system(ecs_iter_t *it) {
       cam->target[2] -= 2.0f * dt;
     if (in->keys[SDL_SCANCODE_S])
       cam->target[2] += 2.0f * dt;
+
+    /* Update audio listener from the camera pose so 3D sounds pan/attenuate
+     * relative to the viewer. Eye follows the same (target + Z=3) used by
+     * the render system. */
+    float eye_pos[3] = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
+    float fwd[3]     = { 0, 0, -1 };
+    float up[3]      = { 0, 1,  0 };
+    safi_audio_set_listener(eye_pos, fwd, up);
   }
 
   /* Left click → raycast from the cursor into the scene, log what was hit.
-   * Edge-detected so holding the button fires once per press. */
+   * Edge-detected so holding the button fires once per press. Clicks landing
+   * on a MicroUI panel are ignored — otherwise the Scene/Inspector hierarchy
+   * would fire a UI click sfx every time the user picks an entity. */
+  mu_Context *mu = safi_debug_ui_context();
+  bool over_panel = mu && mu->hover_root != NULL;
+
   static bool prev_lmb = false;
   bool lmb = in->mouse_buttons[1];  /* SDL_BUTTON_LEFT == 1 */
-  if (lmb && !prev_lmb && cam) {
+  if (lmb && !prev_lmb && cam && !over_panel) {
     int ww = 0, wh = 0;
     SDL_GetWindowSize(SDL_GetKeyboardFocus(), &ww, &wh);
     if (ww > 0 && wh > 0) {
@@ -99,8 +113,16 @@ void control_system(ecs_iter_t *it) {
                       n ? n->value : "<unnamed>",
                       (unsigned long long)hit.entity,
                       hit.point[0], hit.point[1], hit.point[2], hit.fraction);
+        /* 3D impact sfx at the hit point on the sfx bus. */
+        if (g_demo.click_sfx.id)
+          safi_audio_play_3d(g_demo.click_sfx, safi_audio_bus_sfx(),
+                             hit.point, 1.0f, 1.0f, false);
       } else {
         SAFI_LOG_INFO("raycast: miss");
+        /* 2D UI click on miss. */
+        if (g_demo.click_sfx.id)
+          safi_audio_play(g_demo.click_sfx, safi_audio_bus_ui(),
+                          0.7f, 1.0f, false);
       }
     }
   }

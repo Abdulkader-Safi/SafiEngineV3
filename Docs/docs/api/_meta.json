@@ -17,6 +17,11 @@
   },
   {
     "type": "dir",
+    "name": "audio",
+    "label": "Audio"
+  },
+  {
+    "type": "dir",
     "name": "input",
     "label": "Input"
   },

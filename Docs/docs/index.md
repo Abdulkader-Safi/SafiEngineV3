@@ -39,6 +39,10 @@ features:
     details: Load .gltf and .glb straight into a GPU mesh and material via cgltf and stb_image. The starter demo rotates a textured box with the arrow keys and WASD.
     icon: 📦
     link: /api/render/gltf_loader
+  - title: Audio with miniaudio
+    details: 2D and 3D positional audio, mixer buses (master/music/sfx/ui), streaming for long files, and built-in WAV/FLAC/MP3 decoding. One handle-based C API, zero extra setup.
+    icon: 🔊
+    link: /api/audio/audio
   - title: Zed / clangd friendly
     details: CMake emits compile_commands.json and symlinks it to the project root. Open any file in Zed, VS Code, or Neovim — clangd resolves every engine header with no extra config.
     icon: ⚡

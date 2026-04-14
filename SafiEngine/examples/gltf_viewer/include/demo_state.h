@@ -16,6 +16,10 @@ typedef struct DemoState {
   ecs_entity_t camera_entity;
   ecs_entity_t sun_entity;
   ecs_entity_t sky_entity;
+
+  /* Audio */
+  SafiSoundHandle click_sfx;
+  SafiSoundHandle ambient_music;
 } DemoState;
 
 extern DemoState g_demo;

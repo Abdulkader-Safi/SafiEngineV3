@@ -145,6 +145,28 @@ add_library(microui STATIC ${microui_SOURCE_DIR}/src/microui.c)
 target_include_directories(microui PUBLIC ${microui_SOURCE_DIR}/src)
 
 # ---------------------------------------------------------------------------
+# miniaudio — single-header cross-platform audio (MIT)
+# Provides device I/O, mixing graph, 3D spatialization, and built-in wav/flac/mp3
+# decoders. The upstream repo ships a CMakeLists that defines a `miniaudio`
+# static target compiling the implementation; link it directly.
+# ---------------------------------------------------------------------------
+set(MINIAUDIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(MINIAUDIO_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(MINIAUDIO_NO_LIBVORBIS   ON  CACHE BOOL "" FORCE)
+set(MINIAUDIO_NO_LIBOPUS     ON  CACHE BOOL "" FORCE)
+
+FetchContent_Declare(miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.22
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(miniaudio)
+
+# Expose the header directory on the existing `miniaudio` static target so
+# engine sources can `#include <miniaudio.h>` without further glue.
+target_include_directories(miniaudio PUBLIC ${miniaudio_SOURCE_DIR})
+
+# ---------------------------------------------------------------------------
 # Jolt Physics — rigid-body simulation (C++ library, wrapped in one .cpp file)
 # ---------------------------------------------------------------------------
 set(DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
