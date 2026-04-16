@@ -39,6 +39,10 @@ features:
     details: Load .gltf and .glb straight into a GPU mesh and material via cgltf and stb_image. The starter demo rotates a textured box with the arrow keys and WASD.
     icon: 📦
     link: /api/render/gltf_loader
+  - title: Procedural primitives
+    details: Plane, box, sphere, and capsule generated on the fly. Drop a SafiPrimitive component on an entity and edit shape, dimensions, color, or texture path live in the inspector — the engine rebuilds the mesh for you.
+    icon: 🧱
+    link: /api/render/primitives
   - title: Audio with miniaudio
     details: 2D and 3D positional audio, mixer buses (master/music/sfx/ui), streaming for long files, and built-in WAV/FLAC/MP3 decoding. One handle-based C API, zero extra setup.
     icon: 🔊

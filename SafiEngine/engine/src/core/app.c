@@ -7,6 +7,7 @@
 #include "safi/input/input.h"
 #include "safi/physics/physics.h"
 #include "safi/audio/audio.h"
+#include "safi/render/primitive_system.h"
 #include "safi/render/render_system.h"
 #include "safi/ui/debug_ui.h"
 
@@ -62,7 +63,9 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         SAFI_LOG_WARN("audio init failed; continuing without miniaudio");
     }
 
-    /* Register engine-owned render system on EcsOnStore. */
+    /* Engine-owned systems: primitives build their GPU resources on
+     * EcsPreStore; render consumes everything on EcsOnStore. */
+    safi_primitive_system_init(app->world, app);
     safi_render_system_init(app->world, app);
 
     app->running      = true;

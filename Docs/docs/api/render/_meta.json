@@ -1,1 +1,11 @@
-["overview", "renderer", "mesh", "material", "shader", "gltf_loader", "lighting", "assets"]
+[
+  "overview",
+  "renderer",
+  "mesh",
+  "material",
+  "shader",
+  "gltf_loader",
+  "primitives",
+  "lighting",
+  "assets"
+]

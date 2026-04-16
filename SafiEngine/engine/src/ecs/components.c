@@ -5,6 +5,7 @@ ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 ECS_COMPONENT_DECLARE(SafiCamera);
 ECS_COMPONENT_DECLARE(SafiActiveCamera);
 ECS_COMPONENT_DECLARE(SafiMeshRenderer);
+ECS_COMPONENT_DECLARE(SafiPrimitive);
 ECS_COMPONENT_DECLARE(SafiName);
 ECS_COMPONENT_DECLARE(SafiSpin);
 ECS_COMPONENT_DECLARE(SafiTime);
@@ -21,6 +22,7 @@ void safi_register_builtin_components(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, SafiCamera);
     ECS_COMPONENT_DEFINE(world, SafiActiveCamera);
     ECS_COMPONENT_DEFINE(world, SafiMeshRenderer);
+    ECS_COMPONENT_DEFINE(world, SafiPrimitive);
     ECS_COMPONENT_DEFINE(world, SafiName);
     ECS_COMPONENT_DEFINE(world, SafiSpin);
     ECS_COMPONENT_DEFINE(world, SafiTime);

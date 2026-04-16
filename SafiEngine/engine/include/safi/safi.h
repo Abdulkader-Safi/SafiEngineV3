@@ -24,6 +24,8 @@
 #include "safi/render/shader.h"
 #include "safi/render/gltf_loader.h"
 #include "safi/render/model.h"
+#include "safi/render/primitive_mesh.h"
+#include "safi/render/primitive_system.h"
 #include "safi/render/light_buffer.h"
 #include "safi/render/light_system.h"
 #include "safi/render/render_system.h"

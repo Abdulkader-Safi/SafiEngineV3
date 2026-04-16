@@ -1,0 +1,130 @@
+---
+title: Primitive Shapes
+description: Procedural plane / box / sphere / capsule with editable color and texture.
+---
+
+# Primitive Shapes
+
+```c
+#include <safi/render/primitive_mesh.h>
+#include <safi/render/primitive_system.h>
+```
+
+SafiEngine ships a small procedural geometry library and an ECS component that wires it into the standard render path. Use it to get visible objects into a scene **without any glTF on disk** — ideal for prototyping, debug gizmos, the upcoming editor, and any place you just want "a red cube".
+
+## What you get
+
+| Shape       | Built by                       | Dims                                           |
+| ----------- | ------------------------------ | ---------------------------------------------- |
+| **Plane**   | `safi_primitive_build_plane`   | `size` (side length, XZ, normals +Y)           |
+| **Box**     | `safi_primitive_build_box`     | `half_extents[3]` (axis-aligned, flat shading) |
+| **Sphere**  | `safi_primitive_build_sphere`  | `radius`, `segments`, `rings` (UV sphere)      |
+| **Capsule** | `safi_primitive_build_capsule` | `radius`, `height`, `segments`, `rings`        |
+
+Each generator fills freshly-malloc'd vertex and index arrays in the engine's standard [`SafiVertex`](./mesh) layout. The caller hands them to `safi_mesh_create`, then `free()`s both.
+
+## The `SafiPrimitive` component
+
+The easier path is the ECS component — the engine's `primitive_system` owns the GPU resources and rebuilds them automatically whenever you edit any field.
+
+```c
+typedef enum SafiPrimitiveShape {
+    SAFI_PRIMITIVE_PLANE   = 0,
+    SAFI_PRIMITIVE_BOX     = 1,
+    SAFI_PRIMITIVE_SPHERE  = 2,
+    SAFI_PRIMITIVE_CAPSULE = 3,
+} SafiPrimitiveShape;
+
+typedef struct SafiPrimitive {
+    SafiPrimitiveShape shape;
+    union {
+        struct { float size; }                                 plane;
+        struct { float half_extents[3]; }                      box;
+        struct { float radius; int   segments; int rings; }    sphere;
+        struct { float radius; float height;
+                 int   segments; int rings; }                  capsule;
+    } dims;
+
+    float color[4];              // RGBA 0..1; used when texture_path is empty
+    char  texture_path[256];     // empty => solid color from `color`
+    /* private: _gpu, _hash — managed by the engine */
+} SafiPrimitive;
+```
+
+Drop this on any entity that also has `SafiTransform` + `SafiGlobalTransform`. Next frame, the system will:
+
+1. Generate the mesh geometry for the selected shape.
+2. Upload a 1×1 RGBA8 base-color texture from `color`, _or_ decode `texture_path` via `stb_image` if it's set.
+3. Build a lit pipeline + sampler.
+4. Auto-attach a `SafiMeshRenderer` pointing at the internal model so the standard render pass picks it up.
+
+When the component is removed (or the entity is destroyed), all GPU resources are freed by an `EcsOnRemove` observer — no manual cleanup.
+
+## Example — spawn a red box
+
+```c
+ecs_entity_t e = ecs_new(world);
+ecs_set(world, e, SafiTransform, {
+    .position = {0, 0, 0},
+    .rotation = {0, 0, 0, 1},
+    .scale    = {1, 1, 1},
+});
+ecs_set(world, e, SafiGlobalTransform, {0});
+ecs_set(world, e, SafiPrimitive, {
+    .shape = SAFI_PRIMITIVE_BOX,
+    .dims  = { .box = { .half_extents = {0.4f, 0.4f, 0.4f} } },
+    .color = {0.9f, 0.2f, 0.2f, 1.0f},
+});
+ecs_set(world, e, SafiName, { .value = "Box" });
+```
+
+## Example — textured capsule
+
+```c
+ecs_set(world, e, SafiPrimitive, {
+    .shape = SAFI_PRIMITIVE_CAPSULE,
+    .dims  = { .capsule = { .radius = 0.3f, .height = 0.8f,
+                            .segments = 16, .rings = 8 } },
+    .color = {1.0f, 1.0f, 1.0f, 1.0f},
+    .texture_path = "textures/brick.png",
+});
+```
+
+Clear `texture_path` (set it to `""`) to fall back to the solid `color` again.
+
+## Inspector
+
+Selecting an entity with `SafiPrimitive` in the [MicroUI debug panel](../ui/debug_ui) exposes:
+
+- **Shape** — dropdown (Plane / Box / Sphere / Capsule).
+- **Dims** — shape-specific fields (size, half-extents, radius, segments, rings, height).
+- **Color** — four inline number cells (R, G, B, A).
+- **Texture** — single-line text input for the image path.
+
+Any edit takes effect on the next frame. Changing the shape swaps the mesh; tweaking dimensions rebuilds geometry; editing the texture path reloads the image (or falls back to `color` if the file is missing).
+
+## Low-level builders
+
+If you want to bake a procedural mesh once and keep it out of the ECS, call the builders directly:
+
+```c
+SafiVertex *verts = NULL;
+uint32_t   *idx   = NULL;
+size_t      vc = 0, ic = 0;
+
+if (safi_primitive_build_sphere(0.5f, 24, 16, &verts, &vc, &idx, &ic)) {
+    SafiMesh mesh;
+    safi_mesh_create(&app.renderer, &mesh, verts, (uint32_t)vc, idx, (uint32_t)ic);
+    free(verts);
+    free(idx);
+    /* use mesh... then safi_mesh_destroy(&app.renderer, &mesh); */
+}
+```
+
+All builders produce CCW winding when viewed from the outside of the shape, matching the lit pipeline's `CULL_BACK` / `FRONTFACE_CCW` state.
+
+## See also
+
+- [`SafiMesh`](./mesh) — GPU buffer pair the builders target
+- [`SafiMaterial`](./material) — pipeline + base-color texture
+- [`SafiMeshRenderer`](../ecs/components#safimeshrenderer) — what the system attaches automatically

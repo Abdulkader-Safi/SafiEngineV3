@@ -16,6 +16,7 @@
 
 #include "safi/core/time.h"
 #include "safi/input/input.h"
+#include "safi/render/primitive_mesh.h"
 
 /* ---- Transform ---------------------------------------------------------- */
 typedef struct SafiTransform {
@@ -80,6 +81,35 @@ typedef struct SafiMeshRenderer {
     bool              visible;
 } SafiMeshRenderer;
 
+/* ---- Primitive ---------------------------------------------------------- *
+ * Procedurally-generated mesh with a flat color or a loaded texture. The
+ * engine's primitive_system owns and rebuilds the GPU resources whenever any
+ * user-facing field changes. The _gpu pointer is managed by the engine and
+ * freed automatically when the component is removed or the entity destroyed.
+ *
+ * Inspector edits to `shape`, `dims`, `color`, or `texture_path` take effect
+ * on the next frame when the system detects the hash change.
+ */
+struct SafiPrimitiveGpu;
+
+typedef struct SafiPrimitive {
+    SafiPrimitiveShape shape;
+    union {
+        struct { float size; }                                 plane;
+        struct { float half_extents[3]; }                      box;
+        struct { float radius; int   segments; int rings; }    sphere;
+        struct { float radius; float height;
+                 int   segments; int rings; }                  capsule;
+    } dims;
+
+    float color[4];              /* RGBA 0..1; used when texture_path is empty */
+    char  texture_path[256];     /* empty => solid color from `color` */
+
+    /* --- private; owned and maintained by primitive_system --- */
+    struct SafiPrimitiveGpu *_gpu;
+    uint64_t                 _hash;
+} SafiPrimitive;
+
 /* ---- Name --------------------------------------------------------------- */
 typedef struct SafiName {
     const char *value;
@@ -140,6 +170,7 @@ extern ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
 extern ECS_COMPONENT_DECLARE(SafiActiveCamera);
 extern ECS_COMPONENT_DECLARE(SafiMeshRenderer);
+extern ECS_COMPONENT_DECLARE(SafiPrimitive);
 extern ECS_COMPONENT_DECLARE(SafiName);
 extern ECS_COMPONENT_DECLARE(SafiSpin);
 extern ECS_COMPONENT_DECLARE(SafiTime);

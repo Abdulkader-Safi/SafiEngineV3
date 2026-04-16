@@ -753,6 +753,32 @@ static void s_property_vec3(mu_Context *ctx, const char *label,
     s_number_cell(ctx, &xyz[2], step);
 }
 
+/* Label on the left + four R/G/B/A numbers in one row. Mirrors
+ * s_property_vec3 — the inline 4-cell layout keeps color tweaking visually
+ * distinct from direction/size vec3 fields. */
+static void s_property_color_rgba(mu_Context *ctx, const char *label,
+                                   float rgba[4], float step) {
+    int avail = mu_get_current_container(ctx)->body.w -
+                ctx->style->padding * 2;
+    int label_w = 80;
+    int cell_w  = (avail - label_w - ctx->style->spacing * 4) / 4;
+    mu_layout_row(ctx, 5, (int[]){ label_w, cell_w, cell_w, cell_w, cell_w }, 0);
+    mu_label(ctx, label);
+    s_number_cell(ctx, &rgba[0], step);
+    s_number_cell(ctx, &rgba[1], step);
+    s_number_cell(ctx, &rgba[2], step);
+    s_number_cell(ctx, &rgba[3], step);
+}
+
+/* Label + single-line text input bound to a char buffer. Wraps mu_textbox_ex
+ * so the caller can bind a SafiPrimitive.texture_path or similar. */
+static void s_property_string(mu_Context *ctx, const char *label,
+                               char *buf, int cap) {
+    mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
+    mu_label(ctx, label);
+    mu_textbox_ex(ctx, buf, cap, 0);
+}
+
 /* Label + checkbox bound to a bool. MicroUI's checkbox takes int*, so we
  * mirror the bool through a local int. */
 static void s_property_bool(mu_Context *ctx, const char *label, bool *val) {
@@ -1041,6 +1067,63 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                          mr->model ? "assigned" : "none");
                 mu_label(ctx, buf);
                 s_property_bool(ctx, "Visible", &mr->visible);
+            }
+        }
+
+        /* ---- SafiPrimitive ------------------------------------------- */
+        if (ecs_has(world, S.selected_entity, SafiPrimitive)) {
+            SafiPrimitive *pr = ecs_get_mut(world, S.selected_entity,
+                                             SafiPrimitive);
+            if (mu_header_ex(ctx, "Primitive", MU_OPT_EXPANDED)) {
+                static const char *const shapes[] = {
+                    "Plane", "Box", "Sphere", "Capsule",
+                };
+                int shape_i = (int)pr->shape;
+                s_property_enum(ctx, "Shape", &shape_i, shapes, 4);
+                pr->shape = (SafiPrimitiveShape)shape_i;
+
+                switch (pr->shape) {
+                case SAFI_PRIMITIVE_PLANE:
+                    s_property_float(ctx, "Size", &pr->dims.plane.size, 0.1f);
+                    break;
+                case SAFI_PRIMITIVE_BOX:
+                    s_property_vec3(ctx, "HalfExtents",
+                                    pr->dims.box.half_extents, 0.1f);
+                    break;
+                case SAFI_PRIMITIVE_SPHERE: {
+                    s_property_float(ctx, "Radius",
+                                     &pr->dims.sphere.radius, 0.1f);
+                    float seg = (float)pr->dims.sphere.segments;
+                    float rng = (float)pr->dims.sphere.rings;
+                    s_property_float(ctx, "Segments", &seg, 1.0f);
+                    s_property_float(ctx, "Rings",    &rng, 1.0f);
+                    if (seg < 3) seg = 3;
+                    if (rng < 2) rng = 2;
+                    pr->dims.sphere.segments = (int)seg;
+                    pr->dims.sphere.rings    = (int)rng;
+                    break;
+                }
+                case SAFI_PRIMITIVE_CAPSULE: {
+                    s_property_float(ctx, "Radius",
+                                     &pr->dims.capsule.radius, 0.1f);
+                    s_property_float(ctx, "Height",
+                                     &pr->dims.capsule.height, 0.1f);
+                    float seg = (float)pr->dims.capsule.segments;
+                    float rng = (float)pr->dims.capsule.rings;
+                    s_property_float(ctx, "Segments", &seg, 1.0f);
+                    s_property_float(ctx, "Rings",    &rng, 1.0f);
+                    if (seg < 3) seg = 3;
+                    if (rng < 2) rng = 2;
+                    pr->dims.capsule.segments = (int)seg;
+                    pr->dims.capsule.rings    = (int)rng;
+                    break;
+                }
+                }
+
+                s_property_color_rgba(ctx, "Color", pr->color, 0.05f);
+                s_property_string(ctx, "Texture",
+                                  pr->texture_path,
+                                  (int)sizeof(pr->texture_path));
             }
         }
 

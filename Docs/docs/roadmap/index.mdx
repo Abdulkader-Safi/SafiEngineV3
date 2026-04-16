@@ -5,7 +5,7 @@ description: Current implementation status of every SafiEngine subsystem.
 
 # Feature Roadmap
 
-Status of every engine subsystem as of the latest audit (April 2026). Recently added: **miniaudio-powered audio** with 2D/3D playback, mixer buses, and streaming.
+Status of every engine subsystem as of the latest audit (April 2026). Recently added: **procedural primitives** (plane / box / sphere / capsule) with inspector-editable color and texture, and **miniaudio-powered audio** with 2D/3D playback, mixer buses, and streaming.
 
 | Badge           | Meaning                               |
 | --------------- | ------------------------------------- |
@@ -63,6 +63,8 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 | Shader loading (HLSL -> SPIR-V + MSL) | **Implemented** | [Shader](/api/render/shader)            |
 | glTF loader (single primitive)        | **Implemented** | [glTF Loader](/api/render/gltf_loader)  |
 | Multi-material glTF (`SafiModel`)     | **Implemented** | [glTF Loader](/api/render/gltf_loader)  |
+| Procedural primitives (box/sphere/…)  | **Implemented** | [Primitives](/api/render/primitives)    |
+| Inspector-editable color + texture    | **Implemented** | [Primitives](/api/render/primitives)    |
 | Material parameters                   | **Partial**     | [Material](/api/render/material)        |
 | Shader/material abstraction           | **Partial**     | [Material](/api/render/material)        |
 | Culling (back-face)                   | **Partial**     | [Material](/api/render/material)        |

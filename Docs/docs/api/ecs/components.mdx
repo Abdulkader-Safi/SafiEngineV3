@@ -76,6 +76,28 @@ The engine's render system queries `(SafiGlobalTransform, SafiMeshRenderer)` and
 `SafiMeshRenderer` stores a raw `SafiModel*` pointer. A proper asset handle system with caching, deduplication, and lifetime management is not yet implemented. See [Asset System](../render/assets).
 :::
 
+## `SafiPrimitive`
+
+```c
+typedef struct SafiPrimitive {
+    SafiPrimitiveShape shape;   // PLANE / BOX / SPHERE / CAPSULE
+    union {
+        struct { float size; }                                 plane;
+        struct { float half_extents[3]; }                      box;
+        struct { float radius; int   segments; int rings; }    sphere;
+        struct { float radius; float height;
+                 int   segments; int rings; }                  capsule;
+    } dims;
+    float color[4];              // RGBA 0..1; used when texture_path is empty
+    char  texture_path[256];     // empty => solid color
+    /* private: _gpu, _hash — managed by primitive_system */
+} SafiPrimitive;
+```
+
+A procedural mesh with editable shape, dimensions, color, and texture. The engine's `primitive_system` builds the GPU resources on `EcsPreStore` and auto-attaches a `SafiMeshRenderer`; the companion `EcsOnRemove` observer frees them when the component is removed or the entity is destroyed.
+
+Changing **any** field — shape, dims, color, texture path — triggers a rebuild on the next frame, which is what makes the MicroUI inspector edits feel live. See the full reference on [Primitive Shapes](../render/primitives).
+
 ## `SafiName`
 
 ```c

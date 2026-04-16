@@ -14,21 +14,22 @@ All dependencies are pulled in by CMake `FetchContent`. You only need CMake and 
 
 ## Subsystems
 
-| Area                           | Header prefix     | Description                                        | Status      |
-| ------------------------------ | ----------------- | -------------------------------------------------- | ----------- |
-| [Core](./core/app)             | `<safi/core/…>`   | `SafiApp`, logging, frame timing                   | Implemented |
-| [Scheduler](./core/scheduler)  | `<safi/ecs/…>`    | Startup, update, fixed-update, render stages       | Partial     |
-| [ECS](./ecs/overview)          | `<safi/ecs/…>`    | flecs world, stock components, systems             | Implemented |
-| [Transform](./ecs/transform)   | `<safi/ecs/…>`    | Local/global transform, hierarchy propagation      | Partial     |
-| [Camera](./ecs/camera)         | `<safi/ecs/…>`    | Perspective/orthographic projection, viewpoints    | Partial     |
-| [Visibility](./ecs/visibility) | —                 | Visibility flags, frustum culling, render layers   | WIP         |
-| [Render](./render/overview)    | `<safi/render/…>` | SDL_gpu renderer, meshes, materials, shaders, glTF | Implemented |
-| [Lighting](./render/lighting)  | `<safi/render/…>` | Directional, point, ambient lights                 | WIP         |
-| [Assets](./render/assets)      | `<safi/render/…>` | Asset handles, caching, lifecycle                  | WIP         |
-| [Input](./input/input)         | `<safi/input/…>`  | Keyboard/mouse snapshot singleton                  | Implemented |
-| [UI](./ui/debug_ui)            | `<safi/ui/…>`     | MicroUI debug overlay                              | Implemented |
-| [Physics](./ecs/physics)       | —                 | Colliders, rigid bodies, raycasts, overlap queries | Partial     |
-| [Audio](./audio/audio)         | `<safi/audio/…>`  | 2D/3D playback, mixer buses, streaming             | Implemented |
+| Area                              | Header prefix     | Description                                              | Status      |
+| --------------------------------- | ----------------- | -------------------------------------------------------- | ----------- |
+| [Core](./core/app)                | `<safi/core/…>`   | `SafiApp`, logging, frame timing                         | Implemented |
+| [Scheduler](./core/scheduler)     | `<safi/ecs/…>`    | Startup, update, fixed-update, render stages             | Partial     |
+| [ECS](./ecs/overview)             | `<safi/ecs/…>`    | flecs world, stock components, systems                   | Implemented |
+| [Transform](./ecs/transform)      | `<safi/ecs/…>`    | Local/global transform, hierarchy propagation            | Partial     |
+| [Camera](./ecs/camera)            | `<safi/ecs/…>`    | Perspective/orthographic projection, viewpoints          | Partial     |
+| [Visibility](./ecs/visibility)    | —                 | Visibility flags, frustum culling, render layers         | WIP         |
+| [Render](./render/overview)       | `<safi/render/…>` | SDL_gpu renderer, meshes, materials, shaders, glTF       | Implemented |
+| [Primitives](./render/primitives) | `<safi/render/…>` | Procedural plane/box/sphere/capsule with color + texture | Implemented |
+| [Lighting](./render/lighting)     | `<safi/render/…>` | Directional, point, ambient lights                       | WIP         |
+| [Assets](./render/assets)         | `<safi/render/…>` | Asset handles, caching, lifecycle                        | WIP         |
+| [Input](./input/input)            | `<safi/input/…>`  | Keyboard/mouse snapshot singleton                        | Implemented |
+| [UI](./ui/debug_ui)               | `<safi/ui/…>`     | MicroUI debug overlay                                    | Implemented |
+| [Physics](./ecs/physics)          | —                 | Colliders, rigid bodies, raycasts, overlap queries       | Partial     |
+| [Audio](./audio/audio)            | `<safi/audio/…>`  | 2D/3D playback, mixer buses, streaming                   | Implemented |
 
 :::tip Feature status
 See the full [Feature Roadmap](/roadmap/) for a detailed breakdown of every feature's implementation status.

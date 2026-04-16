@@ -119,16 +119,89 @@ bool scene_setup(SafiApp *app) {
           });
   ecs_set(world, ground, SafiName, {.value = "Ground"});
 
+  /* ---- Procedural primitives ------------------------------------------- *
+   * Four shapes spread across the scene. The primitive_system builds their
+   * GPU resources on EcsPreStore next frame and attaches SafiMeshRenderer
+   * automatically; inspector edits rebuild the mesh on demand. */
+  ecs_entity_t prim_box = ecs_new(world);
+  ecs_set(world, prim_box, SafiTransform,
+          {
+              .position = {-2.0f, 0.0f, -1.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {1.0f, 1.0f, 1.0f},
+          });
+  ecs_set(world, prim_box, SafiGlobalTransform, {0});
+  ecs_set(world, prim_box, SafiPrimitive,
+          {
+              .shape = SAFI_PRIMITIVE_BOX,
+              .dims = {.box = {.half_extents = {0.4f, 0.4f, 0.4f}}},
+              .color = {0.9f, 0.2f, 0.2f, 1.0f},
+          });
+  ecs_set(world, prim_box, SafiName, {.value = "Box"});
+
+  ecs_entity_t prim_sphere = ecs_new(world);
+  ecs_set(world, prim_sphere, SafiTransform,
+          {
+              .position = {2.0f, 0.0f, -1.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {1.0f, 1.0f, 1.0f},
+          });
+  ecs_set(world, prim_sphere, SafiGlobalTransform, {0});
+  ecs_set(world, prim_sphere, SafiPrimitive,
+          {
+              .shape = SAFI_PRIMITIVE_SPHERE,
+              .dims = {.sphere = {.radius = 0.5f, .segments = 24, .rings = 16}},
+              .color = {0.2f, 0.4f, 0.9f, 1.0f},
+          });
+  ecs_set(world, prim_sphere, SafiName, {.value = "Sphere"});
+
+  ecs_entity_t prim_plane = ecs_new(world);
+  ecs_set(world, prim_plane, SafiTransform,
+          {
+              .position = {0.0f, -1.0f, 0.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {1.0f, 1.0f, 1.0f},
+          });
+  ecs_set(world, prim_plane, SafiGlobalTransform, {0});
+  ecs_set(world, prim_plane, SafiPrimitive,
+          {
+              .shape = SAFI_PRIMITIVE_PLANE,
+              .dims = {.plane = {.size = 4.0f}},
+              .color = {0.25f, 0.55f, 0.25f, 1.0f},
+          });
+  ecs_set(world, prim_plane, SafiName, {.value = "PlaneFloor"});
+
+  ecs_entity_t prim_capsule = ecs_new(world);
+  ecs_set(world, prim_capsule, SafiTransform,
+          {
+              .position = {0.0f, 0.5f, -2.0f},
+              .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+              .scale = {1.0f, 1.0f, 1.0f},
+          });
+  ecs_set(world, prim_capsule, SafiGlobalTransform, {0});
+  ecs_set(world, prim_capsule, SafiPrimitive,
+          {
+              .shape = SAFI_PRIMITIVE_CAPSULE,
+              .dims = {.capsule = {.radius = 0.3f,
+                                   .height = 0.8f,
+                                   .segments = 16,
+                                   .rings = 8}},
+              .color = {0.9f, 0.9f, 0.95f, 1.0f},
+          });
+  ecs_set(world, prim_capsule, SafiName, {.value = "Capsule"});
+
   /* ---- Audio ------------------------------------------------------------ */
   char audio_path[1024];
-  snprintf(audio_path, sizeof(audio_path), "%s/audio/click.wav", SAFI_DEMO_ASSET_DIR);
+  snprintf(audio_path, sizeof(audio_path), "%s/audio/click.wav",
+           SAFI_DEMO_ASSET_DIR);
   g_demo.click_sfx = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_DECODE);
 
-  snprintf(audio_path, sizeof(audio_path), "%s/audio/ambient.wav", SAFI_DEMO_ASSET_DIR);
+  snprintf(audio_path, sizeof(audio_path), "%s/audio/ambient.wav",
+           SAFI_DEMO_ASSET_DIR);
   g_demo.ambient_music = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_STREAM);
   if (g_demo.ambient_music.id) {
     safi_audio_play(g_demo.ambient_music, safi_audio_bus_music(),
-                    /*volume*/0.3f, /*pitch*/1.0f, /*looping*/true);
+                    /*volume*/ 0.3f, /*pitch*/ 1.0f, /*looping*/ true);
     SAFI_LOG_INFO("audio: ambient music looping on music bus at 30%%");
   }
 
