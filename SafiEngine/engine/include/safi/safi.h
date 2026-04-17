@@ -19,6 +19,7 @@
 #include "safi/input/input.h"
 
 #include "safi/render/renderer.h"
+#include "safi/render/assets.h"
 #include "safi/render/mesh.h"
 #include "safi/render/material.h"
 #include "safi/render/shader.h"

@@ -26,6 +26,7 @@
 #include "safi/ui/debug_ui.h"
 #include "safi/core/log.h"
 #include "safi/ecs/components.h"
+#include "safi/render/assets.h"
 #include "safi/physics/physics.h"
 #include "safi/render/shader.h"
 
@@ -1063,8 +1064,9 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                                                SafiMeshRenderer);
             if (mu_header_ex(ctx, "MeshRenderer", MU_OPT_EXPANDED)) {
                 mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+                const char *mpath = safi_assets_model_path(mr->model);
                 snprintf(buf, sizeof(buf), "Model: %s",
-                         mr->model ? "assigned" : "none");
+                         mr->model.id ? (mpath[0] ? mpath : "<code>") : "none");
                 mu_label(ctx, buf);
                 s_property_bool(ctx, "Visible", &mr->visible);
             }

@@ -5,6 +5,7 @@
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
 #include "safi/input/input.h"
+#include "safi/render/assets.h"
 #include "safi/physics/physics.h"
 #include "safi/audio/audio.h"
 #include "safi/render/primitive_system.h"
@@ -27,6 +28,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         .vsync  = desc->vsync,
     };
     if (!safi_renderer_init(&app->renderer, &rd)) return false;
+    safi_assets_init(&app->renderer);
 
     app->world = safi_ecs_create();
     if (!app->world) {
@@ -79,6 +81,7 @@ void safi_app_shutdown(SafiApp *app) {
     safi_physics_shutdown();
     if (app->debug_ui_enabled) safi_debug_ui_shutdown(&app->renderer);
     if (app->world)  safi_ecs_destroy(app->world);
+    safi_assets_shutdown();
     safi_renderer_shutdown(&app->renderer);
     memset(app, 0, sizeof(*app));
 }

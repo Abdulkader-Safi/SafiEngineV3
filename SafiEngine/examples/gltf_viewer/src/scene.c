@@ -14,8 +14,8 @@ bool scene_setup(SafiApp *app) {
   snprintf(model_path, sizeof(model_path), "%s/models/player.glb",
            SAFI_DEMO_ASSET_DIR);
 
-  if (!safi_model_load_lit(&app->renderer, model_path, SAFI_DEMO_SHADER_DIR,
-                           &g_demo.model)) {
+  g_demo.model_h = safi_assets_load_model_lit(model_path, SAFI_DEMO_SHADER_DIR);
+  if (!g_demo.model_h.id) {
     SAFI_LOG_ERROR("failed to load %s", model_path);
     return false;
   }
@@ -32,7 +32,7 @@ bool scene_setup(SafiApp *app) {
           });
   ecs_set(world, g_demo.model_entity, SafiGlobalTransform, {0});
   ecs_set(world, g_demo.model_entity, SafiMeshRenderer,
-          {.model = &g_demo.model, .visible = true});
+          {.model = g_demo.model_h, .visible = true});
   ecs_set(world, g_demo.model_entity, SafiName, {.value = "Model"});
 
   /* Spawn the camera. */
@@ -81,7 +81,7 @@ bool scene_setup(SafiApp *app) {
           });
   ecs_set(world, falling, SafiGlobalTransform, {0});
   ecs_set(world, falling, SafiMeshRenderer,
-          {.model = &g_demo.model, .visible = true});
+          {.model = g_demo.model_h, .visible = true});
   ecs_set(world, falling, SafiRigidBody,
           {
               .type = SAFI_BODY_DYNAMIC,
@@ -158,7 +158,7 @@ bool scene_setup(SafiApp *app) {
   ecs_entity_t prim_plane = ecs_new(world);
   ecs_set(world, prim_plane, SafiTransform,
           {
-              .position = {0.0f, -1.0f, 0.0f},
+              .position = {0.0f, -1.75f, 0.0f},
               .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
               .scale = {1.0f, 1.0f, 1.0f},
           });

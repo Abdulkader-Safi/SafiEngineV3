@@ -65,16 +65,14 @@ Tag component — marks which camera the engine renders from. Attach to exactly 
 
 ```c
 typedef struct SafiMeshRenderer {
-    SafiModel *model;     /* non-owning; lifetime managed by the app */
-    bool       visible;
+    SafiModelHandle model;   // asset-registry handle; 0 = nothing to draw
+    bool            visible;
 } SafiMeshRenderer;
 ```
 
-The engine's render system queries `(SafiGlobalTransform, SafiMeshRenderer)` and issues one `safi_model_draw_lit` call per visible entity. Set `visible = false` to skip rendering without removing the component.
+The engine's render system queries `(SafiGlobalTransform, SafiMeshRenderer)` and resolves the handle via `safi_assets_resolve_model()` each frame, then issues one `safi_model_draw_lit` call per visible entity. Set `visible = false` to skip rendering without removing the component.
 
-:::warning WIP — Asset handles
-`SafiMeshRenderer` stores a raw `SafiModel*` pointer. A proper asset handle system with caching, deduplication, and lifetime management is not yet implemented. See [Asset System](../render/assets).
-:::
+Models are loaded through the [Asset System](../render/assets) with path-based deduplication and refcounting. The inspector shows the resolved path (or `<code>` for procedurally-registered models).
 
 ## `SafiPrimitive`
 

@@ -16,6 +16,7 @@
 
 #include "safi/core/time.h"
 #include "safi/input/input.h"
+#include "safi/render/assets.h"
 #include "safi/render/primitive_mesh.h"
 
 /* ---- Transform ---------------------------------------------------------- */
@@ -74,11 +75,9 @@ typedef struct SafiCamera {
 typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
 
 /* ---- MeshRenderer ------------------------------------------------------- */
-struct SafiModel;
-
 typedef struct SafiMeshRenderer {
-    struct SafiModel *model;     /* non-owning; lifetime managed by the app */
-    bool              visible;
+    SafiModelHandle model;   /* asset-registry handle; 0 = nothing to draw */
+    bool            visible;
 } SafiMeshRenderer;
 
 /* ---- Primitive ---------------------------------------------------------- *
@@ -90,8 +89,6 @@ typedef struct SafiMeshRenderer {
  * Inspector edits to `shape`, `dims`, `color`, or `texture_path` take effect
  * on the next frame when the system detects the hash change.
  */
-struct SafiPrimitiveGpu;
-
 typedef struct SafiPrimitive {
     SafiPrimitiveShape shape;
     union {
@@ -106,8 +103,8 @@ typedef struct SafiPrimitive {
     char  texture_path[256];     /* empty => solid color from `color` */
 
     /* --- private; owned and maintained by primitive_system --- */
-    struct SafiPrimitiveGpu *_gpu;
-    uint64_t                 _hash;
+    SafiModelHandle _model_handle;
+    uint64_t        _hash;
 } SafiPrimitive;
 
 /* ---- Name --------------------------------------------------------------- */

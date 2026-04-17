@@ -1,6 +1,7 @@
 #include "safi/render/render_system.h"
 #include "safi/core/app.h"
 #include "safi/ecs/components.h"
+#include "safi/render/assets.h"
 #include "safi/render/renderer.h"
 #include "safi/render/model.h"
 #include "safi/render/light_buffer.h"
@@ -104,7 +105,9 @@ static void safi_render_system(ecs_iter_t *it) {
             SafiGlobalTransform *gt = ecs_field(&qit, SafiGlobalTransform, 0);
             SafiMeshRenderer    *mr = ecs_field(&qit, SafiMeshRenderer, 1);
             for (int i = 0; i < qit.count; i++) {
-                if (!mr[i].model || !mr[i].visible) continue;
+                if (!mr[i].visible) continue;
+                const SafiModel *mdl = safi_assets_resolve_model(mr[i].model);
+                if (!mdl) continue;
 
                 mat4 model_mat, mvp;
                 glm_mat4_copy(gt[i].matrix, model_mat);
@@ -116,7 +119,7 @@ static void safi_render_system(ecs_iter_t *it) {
                 memcpy(vs_buf.mvp, mvp, sizeof(mvp));
                 safi_compute_normal_matrix((const float *)model_mat, vs_buf.normal_mat);
 
-                safi_model_draw_lit(r, mr[i].model, &vs_buf, &cam_buf, &light_buf);
+                safi_model_draw_lit(r, mdl, &vs_buf, &cam_buf, &light_buf);
             }
         }
         ecs_query_fini(q);

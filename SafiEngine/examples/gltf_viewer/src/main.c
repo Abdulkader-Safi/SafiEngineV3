@@ -54,7 +54,6 @@ int main(int argc, char **argv) {
 
   safi_app_run(&app);
 
-  safi_model_destroy(&app.renderer, &g_demo.model);
   safi_app_shutdown(&app);
   return 0;
 }

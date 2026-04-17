@@ -11,7 +11,7 @@
 #include <safi/safi.h>
 
 typedef struct DemoState {
-  SafiModel model;
+  SafiModelHandle model_h;
   ecs_entity_t model_entity;
   ecs_entity_t camera_entity;
   ecs_entity_t sun_entity;

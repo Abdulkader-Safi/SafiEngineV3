@@ -1,42 +1,139 @@
 ---
 title: Asset System
-description: Asset handles, caching, and lifecycle management — not yet implemented.
+description: Refcounted handle types for models, textures, meshes, materials, and shaders — with path-based deduplication and a hot-reload stub.
 ---
 
 # Asset System
 
-:::warning WIP — Not yet implemented
-The engine does not have an asset management layer. GPU resources are created and destroyed manually, and components store raw pointers.
+```c
+#include <safi/render/assets.h>
+```
+
+Every render asset in SafiEngine is addressed by a **stable 32-bit handle** instead of a raw pointer. Handles survive reloads, are safe to serialize into scene files, and let the registry deduplicate loads by path.
+
+## Handle types
+
+```c
+typedef struct { uint32_t id; } SafiModelHandle;
+typedef struct { uint32_t id; } SafiTextureHandle;
+typedef struct { uint32_t id; } SafiMeshHandle;
+typedef struct { uint32_t id; } SafiMaterialHandle;
+typedef struct { uint32_t id; } SafiShaderHandle;
+```
+
+`id == 0` is always invalid ("no handle"). Internally, `id = (slot_index + 1) | (generation << 16)` — the same packing scheme used by [`SafiSoundHandle`](../audio/audio) in the audio subsystem.
+
+## Path-cached kinds: Model & Texture
+
+Models and textures are loaded from disk and **deduplicated by path**: if two entities load `models/player.glb`, only one decode + upload happens.
+
+```c
+// Load a lit-shaded glTF. Returns a handle with refcount = 1.
+SafiModelHandle h = safi_assets_load_model_lit(path, shader_dir);
+
+// Second load of the same path → cache hit, refcount = 2, no GPU work.
+SafiModelHandle h2 = safi_assets_load_model_lit(path, shader_dir);
+
+// Resolve to the underlying SafiModel* for draw calls.
+SafiModel *m = safi_assets_resolve_model(h);
+
+// Get the path that was used to load this model.
+const char *p = safi_assets_model_path(h);   // "" for code-owned models
+```
+
+Textures work the same way:
+
+```c
+SafiTextureHandle th = safi_assets_load_texture("textures/brick.png");
+SDL_GPUTexture *tex  = safi_assets_resolve_texture(th);
+```
+
+## Code-owned kinds: Mesh, Material
+
+For assets built at runtime (procedural meshes, one-off materials), use `register_*`:
+
+```c
+SafiMesh mesh;
+safi_mesh_create(&r, &mesh, verts, nv, idx, ni);
+SafiMeshHandle mh = safi_assets_register_mesh(mesh);
+// ownership transfers — don't call safi_mesh_destroy manually
+```
+
+## Refcounting
+
+Every slot has an `int refcount`.
+
+- `load_*` / `register_*` create a slot with refcount = 1.
+- `acquire_*` bumps the refcount.
+- `release_*` decrements. At zero, GPU resources are freed and the slot's generation is bumped — any handle still pointing at the old generation resolves to `NULL`.
+- `safi_assets_shutdown()` drains every slot regardless of refcount, logging a warning per leak.
+
+Components that carry handles (e.g. `SafiMeshRenderer.model`) should acquire on attachment and release on removal. The engine's `primitive_system` demonstrates this pattern via its `EcsOnRemove` observer.
+
+## Hot-reload (stub)
+
+The API surface exists; SDL filesystem watching is **not yet wired**.
+
+```c
+safi_assets_reload(model_handle);          // re-decode from .path
+safi_assets_reload_texture(texture_handle);
+
+// Subscribe to reload events (one global subscriber).
+safi_assets_on_reload(my_callback, my_ctx);
+```
+
+The editor will call these from the asset browser's "Reload" button. The handle id stays stable — only the underlying GPU resource is swapped.
+
+## SafiMeshRenderer integration
+
+`SafiMeshRenderer.model` is now a `SafiModelHandle`:
+
+```c
+typedef struct SafiMeshRenderer {
+    SafiModelHandle model;   // 0 = nothing to draw
+    bool            visible;
+} SafiMeshRenderer;
+```
+
+The engine's render system resolves the handle each frame:
+
+```c
+const SafiModel *m = safi_assets_resolve_model(mr.model);
+if (!m) continue;
+safi_model_draw_lit(r, m, &vs, &cam, &lights);
+```
+
+## Full public API
+
+| Function                                                | Description                                         |
+| ------------------------------------------------------- | --------------------------------------------------- |
+| `safi_assets_init(r)`                                   | Initialize the registry. Called by `safi_app_init`. |
+| `safi_assets_shutdown()`                                | Drain all slots, warn on leaks.                     |
+| `safi_assets_load_model(path, shader_dir)`              | Load a glTF with unlit pipeline.                    |
+| `safi_assets_load_model_lit(path, shader_dir)`          | Load a glTF with lit pipeline.                      |
+| `safi_assets_register_model(model)`                     | Register a code-built SafiModel.                    |
+| `safi_assets_resolve_model(h)`                          | Resolve handle → `SafiModel*` (NULL if stale).      |
+| `safi_assets_model_path(h)`                             | Path string or `""`.                                |
+| `safi_assets_acquire_model(h)` / `release_model(h)`     | Refcount management.                                |
+| `safi_assets_load_texture(path)`                        | Load + decode an image.                             |
+| `safi_assets_register_texture_rgba8(px, w, h)`          | Upload a raw RGBA8 buffer.                          |
+| `safi_assets_resolve_texture(h)`                        | Resolve → `SDL_GPUTexture*`.                        |
+| `safi_assets_texture_path(h)`                           | Path string or `""`.                                |
+| `safi_assets_acquire_texture(h)` / `release_texture(h)` | Refcount management.                                |
+| `safi_assets_register_mesh(mesh)`                       | Register a code-built SafiMesh.                     |
+| `safi_assets_register_material(mat)`                    | Register a code-built SafiMaterial.                 |
+| `safi_assets_resolve_mesh(h)` / `resolve_material(h)`   | Resolve by handle.                                  |
+| `safi_assets_reload(h)`                                 | Re-decode model from path.                          |
+| `safi_assets_reload_texture(h)`                         | Re-decode texture from path.                        |
+| `safi_assets_on_reload(cb, ctx)`                        | Subscribe to reload events.                         |
+
+:::warning WIP — Async loading
+Async / staged loading (background decode + GPU upload in a later frame) is not yet implemented. All loads are synchronous and block the main thread.
 :::
-
-## Current state
-
-- `SafiMeshRenderer` holds `SafiMesh*` and `SafiMaterial*` — raw pointers with no reference counting
-- `SafiMaterial` owns an `SDL_GPUTexture*` directly
-- `safi_gltf_load` performs synchronous parse, decode, and GPU upload in one call
-- Loading the same file twice creates duplicate GPU resources
-
-## Planned features
-
-### Asset handles
-
-Opaque handle types (e.g. `SafiHandle(SafiMesh)`) that reference assets by ID rather than pointer. Handles can be copied freely and remain valid as long as the asset server owns the underlying resource.
-
-### Asset server / registry
-
-A central `SafiAssetServer` resource that owns all loaded assets, maps paths to handles, and manages lifetimes. Components store handles; the render system resolves handles to GPU resources at draw time.
-
-### Caching & deduplication
-
-The asset server tracks loaded paths. Requesting an already-loaded asset returns the existing handle instead of duplicating GPU resources.
-
-### Async / staged loading
-
-A background loading path that parses and decodes assets off the main thread, then uploads to the GPU in a staging step. This prevents frame hitches when loading large models or textures.
 
 ## See also
 
-- [`SafiMesh`](./mesh)
-- [`SafiMaterial`](./material)
-- [`safi_gltf_load`](./gltf_loader)
-- [Stock components](../ecs/components)
+- [`SafiMesh`](./mesh) — GPU buffer pair
+- [`SafiMaterial`](./material) — pipeline + base-color texture
+- [`SafiModel`](./gltf_loader) — multi-primitive glTF container
+- [Stock Components](../ecs/components) — `SafiMeshRenderer` uses `SafiModelHandle`
