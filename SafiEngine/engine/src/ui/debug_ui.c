@@ -707,8 +707,12 @@ void safi_debug_ui_select_entity(ecs_entity_t e) {
 /* Single number cell: drag to change, double-click for text input.
  * After mu_number_ex runs (which sets hover/focus), we check for a
  * double-click and trigger MicroUI's built-in text edit mode for the
- * next frame. */
-static void s_number_cell(mu_Context *ctx, float *val, float step) {
+ * next frame.
+ *
+ * These widget functions are exposed publicly via inspector_widgets.h
+ * so the component registry's per-component draw callbacks can use
+ * them without duplicating the dropdown/double-click plumbing. */
+void safi_inspector_number_cell(mu_Context *ctx, float *val, float step) {
     mu_Id id = mu_get_id(ctx, &val, sizeof(val));
 
     mu_number_ex(ctx, val, step, "%.2f", MU_OPT_ALIGNCENTER);
@@ -732,16 +736,16 @@ static void s_number_cell(mu_Context *ctx, float *val, float step) {
 }
 
 /* Label on the left + single number on the right. */
-static void s_property_float(mu_Context *ctx, const char *label,
+void safi_inspector_property_float(mu_Context *ctx, const char *label,
                               float *val, float step) {
     mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
     mu_label(ctx, label);
-    s_number_cell(ctx, val, step);
+    safi_inspector_number_cell(ctx, val, step);
 }
 
 /* Label on the left + three X/Y/Z numbers in one row.
  * We compute equal widths for the 3 cells from the container width. */
-static void s_property_vec3(mu_Context *ctx, const char *label,
+void safi_inspector_property_vec3(mu_Context *ctx, const char *label,
                              float *xyz, float step) {
     int avail = mu_get_current_container(ctx)->body.w -
                 ctx->style->padding * 2;
@@ -749,15 +753,15 @@ static void s_property_vec3(mu_Context *ctx, const char *label,
     int cell_w  = (avail - label_w - ctx->style->spacing * 3) / 3;
     mu_layout_row(ctx, 4, (int[]){ label_w, cell_w, cell_w, cell_w }, 0);
     mu_label(ctx, label);
-    s_number_cell(ctx, &xyz[0], step);
-    s_number_cell(ctx, &xyz[1], step);
-    s_number_cell(ctx, &xyz[2], step);
+    safi_inspector_number_cell(ctx, &xyz[0], step);
+    safi_inspector_number_cell(ctx, &xyz[1], step);
+    safi_inspector_number_cell(ctx, &xyz[2], step);
 }
 
 /* Label on the left + four R/G/B/A numbers in one row. Mirrors
- * s_property_vec3 — the inline 4-cell layout keeps color tweaking visually
+ * safi_inspector_property_vec3 — the inline 4-cell layout keeps color tweaking visually
  * distinct from direction/size vec3 fields. */
-static void s_property_color_rgba(mu_Context *ctx, const char *label,
+void safi_inspector_property_color_rgba(mu_Context *ctx, const char *label,
                                    float rgba[4], float step) {
     int avail = mu_get_current_container(ctx)->body.w -
                 ctx->style->padding * 2;
@@ -765,15 +769,15 @@ static void s_property_color_rgba(mu_Context *ctx, const char *label,
     int cell_w  = (avail - label_w - ctx->style->spacing * 4) / 4;
     mu_layout_row(ctx, 5, (int[]){ label_w, cell_w, cell_w, cell_w, cell_w }, 0);
     mu_label(ctx, label);
-    s_number_cell(ctx, &rgba[0], step);
-    s_number_cell(ctx, &rgba[1], step);
-    s_number_cell(ctx, &rgba[2], step);
-    s_number_cell(ctx, &rgba[3], step);
+    safi_inspector_number_cell(ctx, &rgba[0], step);
+    safi_inspector_number_cell(ctx, &rgba[1], step);
+    safi_inspector_number_cell(ctx, &rgba[2], step);
+    safi_inspector_number_cell(ctx, &rgba[3], step);
 }
 
 /* Label + single-line text input bound to a char buffer. Wraps mu_textbox_ex
  * so the caller can bind a SafiPrimitive.texture_path or similar. */
-static void s_property_string(mu_Context *ctx, const char *label,
+void safi_inspector_property_string(mu_Context *ctx, const char *label,
                                char *buf, int cap) {
     mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
     mu_label(ctx, label);
@@ -782,7 +786,7 @@ static void s_property_string(mu_Context *ctx, const char *label,
 
 /* Label + checkbox bound to a bool. MicroUI's checkbox takes int*, so we
  * mirror the bool through a local int. */
-static void s_property_bool(mu_Context *ctx, const char *label, bool *val) {
+void safi_inspector_property_bool(mu_Context *ctx, const char *label, bool *val) {
     mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
     mu_label(ctx, label);
     int state = *val ? 1 : 0;
@@ -795,7 +799,7 @@ static void s_property_bool(mu_Context *ctx, const char *label, bool *val) {
  * s_draw_open_dropdown() after the Inspector window has ended, so the
  * popup isn't clipped to the Inspector's body and doesn't fight its
  * layout. */
-static void s_property_enum(mu_Context *ctx, const char *label, int *value,
+void safi_inspector_property_enum(mu_Context *ctx, const char *label, int *value,
                             const char *const *names, int count) {
     mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
     mu_label(ctx, label);
@@ -1018,7 +1022,7 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiTransform *xf = ecs_get_mut(world, S.selected_entity,
                                             SafiTransform);
             if (mu_header_ex(ctx, "Transform", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Position", xf->position, 0.1f);
+                safi_inspector_property_vec3(ctx, "Position", xf->position, 0.1f);
 
                 mat4 rot_mat;
                 vec3 euler_rad;
@@ -1030,7 +1034,7 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                     glm_deg(euler_rad[2]),
                 };
 
-                s_property_vec3(ctx, "Rotation", rot_deg, 1.0f);
+                safi_inspector_property_vec3(ctx, "Rotation", rot_deg, 1.0f);
 
                 euler_rad[0] = glm_rad(rot_deg[0]);
                 euler_rad[1] = glm_rad(rot_deg[1]);
@@ -1038,7 +1042,7 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 glm_euler_xyz(euler_rad, rot_mat);
                 glm_mat4_quat(rot_mat, xf->rotation);
 
-                s_property_vec3(ctx, "Scale", xf->scale, 0.1f);
+                safi_inspector_property_vec3(ctx, "Scale", xf->scale, 0.1f);
             }
         }
 
@@ -1048,13 +1052,13 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                                           SafiCamera);
             if (mu_header_ex(ctx, "Camera", MU_OPT_EXPANDED)) {
                 float fov_deg = glm_deg(cam->fov_y_radians);
-                s_property_float(ctx, "FOV", &fov_deg, 1.0f);
+                safi_inspector_property_float(ctx, "FOV", &fov_deg, 1.0f);
                 cam->fov_y_radians = glm_rad(fov_deg);
 
-                s_property_float(ctx, "Near", &cam->z_near, 0.01f);
-                s_property_float(ctx, "Far",  &cam->z_far, 1.0f);
+                safi_inspector_property_float(ctx, "Near", &cam->z_near, 0.01f);
+                safi_inspector_property_float(ctx, "Far",  &cam->z_far, 1.0f);
 
-                s_property_vec3(ctx, "Target", cam->target, 0.1f);
+                safi_inspector_property_vec3(ctx, "Target", cam->target, 0.1f);
             }
         }
 
@@ -1068,7 +1072,7 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 snprintf(buf, sizeof(buf), "Model: %s",
                          mr->model.id ? (mpath[0] ? mpath : "<code>") : "none");
                 mu_label(ctx, buf);
-                s_property_bool(ctx, "Visible", &mr->visible);
+                safi_inspector_property_bool(ctx, "Visible", &mr->visible);
             }
         }
 
@@ -1081,24 +1085,24 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                     "Plane", "Box", "Sphere", "Capsule",
                 };
                 int shape_i = (int)pr->shape;
-                s_property_enum(ctx, "Shape", &shape_i, shapes, 4);
+                safi_inspector_property_enum(ctx, "Shape", &shape_i, shapes, 4);
                 pr->shape = (SafiPrimitiveShape)shape_i;
 
                 switch (pr->shape) {
                 case SAFI_PRIMITIVE_PLANE:
-                    s_property_float(ctx, "Size", &pr->dims.plane.size, 0.1f);
+                    safi_inspector_property_float(ctx, "Size", &pr->dims.plane.size, 0.1f);
                     break;
                 case SAFI_PRIMITIVE_BOX:
-                    s_property_vec3(ctx, "HalfExtents",
+                    safi_inspector_property_vec3(ctx, "HalfExtents",
                                     pr->dims.box.half_extents, 0.1f);
                     break;
                 case SAFI_PRIMITIVE_SPHERE: {
-                    s_property_float(ctx, "Radius",
+                    safi_inspector_property_float(ctx, "Radius",
                                      &pr->dims.sphere.radius, 0.1f);
                     float seg = (float)pr->dims.sphere.segments;
                     float rng = (float)pr->dims.sphere.rings;
-                    s_property_float(ctx, "Segments", &seg, 1.0f);
-                    s_property_float(ctx, "Rings",    &rng, 1.0f);
+                    safi_inspector_property_float(ctx, "Segments", &seg, 1.0f);
+                    safi_inspector_property_float(ctx, "Rings",    &rng, 1.0f);
                     if (seg < 3) seg = 3;
                     if (rng < 2) rng = 2;
                     pr->dims.sphere.segments = (int)seg;
@@ -1106,14 +1110,14 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                     break;
                 }
                 case SAFI_PRIMITIVE_CAPSULE: {
-                    s_property_float(ctx, "Radius",
+                    safi_inspector_property_float(ctx, "Radius",
                                      &pr->dims.capsule.radius, 0.1f);
-                    s_property_float(ctx, "Height",
+                    safi_inspector_property_float(ctx, "Height",
                                      &pr->dims.capsule.height, 0.1f);
                     float seg = (float)pr->dims.capsule.segments;
                     float rng = (float)pr->dims.capsule.rings;
-                    s_property_float(ctx, "Segments", &seg, 1.0f);
-                    s_property_float(ctx, "Rings",    &rng, 1.0f);
+                    safi_inspector_property_float(ctx, "Segments", &seg, 1.0f);
+                    safi_inspector_property_float(ctx, "Rings",    &rng, 1.0f);
                     if (seg < 3) seg = 3;
                     if (rng < 2) rng = 2;
                     pr->dims.capsule.segments = (int)seg;
@@ -1122,8 +1126,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 }
                 }
 
-                s_property_color_rgba(ctx, "Color", pr->color, 0.05f);
-                s_property_string(ctx, "Texture",
+                safi_inspector_property_color_rgba(ctx, "Color", pr->color, 0.05f);
+                safi_inspector_property_string(ctx, "Texture",
                                   pr->texture_path,
                                   (int)sizeof(pr->texture_path));
             }
@@ -1133,8 +1137,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         if (ecs_has(world, S.selected_entity, SafiSpin)) {
             SafiSpin *spin = ecs_get_mut(world, S.selected_entity, SafiSpin);
             if (mu_header_ex(ctx, "Spin", MU_OPT_EXPANDED)) {
-                s_property_float(ctx, "speed", &spin->speed, 0.1f);
-                s_property_vec3(ctx, "Axis", spin->axis, 0.1f);
+                safi_inspector_property_float(ctx, "speed", &spin->speed, 0.1f);
+                safi_inspector_property_vec3(ctx, "Axis", spin->axis, 0.1f);
             }
         }
 
@@ -1147,12 +1151,12 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                     "Static", "Dynamic", "Kinematic",
                 };
                 int type_i = (int)rb->type;
-                s_property_enum(ctx, "Type", &type_i, body_types, 3);
+                safi_inspector_property_enum(ctx, "Type", &type_i, body_types, 3);
                 rb->type = (SafiBodyType)type_i;
 
-                s_property_float(ctx, "Mass",        &rb->mass,        0.1f);
-                s_property_float(ctx, "Friction",    &rb->friction,    0.05f);
-                s_property_float(ctx, "Restitution", &rb->restitution, 0.05f);
+                safi_inspector_property_float(ctx, "Mass",        &rb->mass,        0.1f);
+                safi_inspector_property_float(ctx, "Friction",    &rb->friction,    0.05f);
+                safi_inspector_property_float(ctx, "Restitution", &rb->restitution, 0.05f);
             }
         }
 
@@ -1163,16 +1167,16 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             if (mu_header_ex(ctx, "Collider", MU_OPT_EXPANDED)) {
                 static const char *const shapes[] = { "Box", "Sphere" };
                 int shape_i = (int)col->shape;
-                s_property_enum(ctx, "Shape", &shape_i, shapes, 2);
+                safi_inspector_property_enum(ctx, "Shape", &shape_i, shapes, 2);
                 col->shape = (SafiColliderShape)shape_i;
 
                 switch (col->shape) {
                 case SAFI_COLLIDER_BOX:
-                    s_property_vec3(ctx, "HalfExtents",
+                    safi_inspector_property_vec3(ctx, "HalfExtents",
                                     col->box.half_extents, 0.1f);
                     break;
                 case SAFI_COLLIDER_SPHERE:
-                    s_property_float(ctx, "Radius",
+                    safi_inspector_property_float(ctx, "Radius",
                                      &col->sphere.radius, 0.1f);
                     break;
                 }
@@ -1184,9 +1188,9 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiDirectionalLight *dl = ecs_get_mut(world, S.selected_entity,
                                                     SafiDirectionalLight);
             if (mu_header_ex(ctx, "Directional Light", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Direction", dl->direction, 0.1f);
-                s_property_vec3(ctx, "Color",     dl->color, 0.05f);
-                s_property_float(ctx, "intensity", &dl->intensity, 0.1f);
+                safi_inspector_property_vec3(ctx, "Direction", dl->direction, 0.1f);
+                safi_inspector_property_vec3(ctx, "Color",     dl->color, 0.05f);
+                safi_inspector_property_float(ctx, "intensity", &dl->intensity, 0.1f);
             }
         }
 
@@ -1195,9 +1199,9 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiPointLight *pl = ecs_get_mut(world, S.selected_entity,
                                               SafiPointLight);
             if (mu_header_ex(ctx, "Point Light", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Color", pl->color, 0.05f);
-                s_property_float(ctx, "intensity", &pl->intensity, 0.1f);
-                s_property_float(ctx, "range",     &pl->range, 1.0f);
+                safi_inspector_property_vec3(ctx, "Color", pl->color, 0.05f);
+                safi_inspector_property_float(ctx, "intensity", &pl->intensity, 0.1f);
+                safi_inspector_property_float(ctx, "range",     &pl->range, 1.0f);
             }
         }
 
@@ -1206,11 +1210,11 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiSpotLight *sl = ecs_get_mut(world, S.selected_entity,
                                              SafiSpotLight);
             if (mu_header_ex(ctx, "Spot Light", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Color", sl->color, 0.05f);
-                s_property_float(ctx, "intensity",   &sl->intensity, 0.1f);
-                s_property_float(ctx, "range",       &sl->range, 1.0f);
-                s_property_float(ctx, "inner angle", &sl->inner_angle, 0.01f);
-                s_property_float(ctx, "outer angle", &sl->outer_angle, 0.01f);
+                safi_inspector_property_vec3(ctx, "Color", sl->color, 0.05f);
+                safi_inspector_property_float(ctx, "intensity",   &sl->intensity, 0.1f);
+                safi_inspector_property_float(ctx, "range",       &sl->range, 1.0f);
+                safi_inspector_property_float(ctx, "inner angle", &sl->inner_angle, 0.01f);
+                safi_inspector_property_float(ctx, "outer angle", &sl->outer_angle, 0.01f);
             }
         }
 
@@ -1219,10 +1223,10 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiRectLight *rl = ecs_get_mut(world, S.selected_entity,
                                              SafiRectLight);
             if (mu_header_ex(ctx, "Rect Light", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Color", rl->color, 0.05f);
-                s_property_float(ctx, "intensity", &rl->intensity, 0.1f);
-                s_property_float(ctx, "width",     &rl->width, 0.1f);
-                s_property_float(ctx, "height",    &rl->height, 0.1f);
+                safi_inspector_property_vec3(ctx, "Color", rl->color, 0.05f);
+                safi_inspector_property_float(ctx, "intensity", &rl->intensity, 0.1f);
+                safi_inspector_property_float(ctx, "width",     &rl->width, 0.1f);
+                safi_inspector_property_float(ctx, "height",    &rl->height, 0.1f);
             }
         }
 
@@ -1231,8 +1235,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
             SafiSkyLight *sk = ecs_get_mut(world, S.selected_entity,
                                             SafiSkyLight);
             if (mu_header_ex(ctx, "Sky Light", MU_OPT_EXPANDED)) {
-                s_property_vec3(ctx, "Color", sk->color, 0.05f);
-                s_property_float(ctx, "intensity", &sk->intensity, 0.1f);
+                safi_inspector_property_vec3(ctx, "Color", sk->color, 0.05f);
+                safi_inspector_property_float(ctx, "intensity", &sk->intensity, 0.1f);
             }
         }
         mu_end_window(ctx);

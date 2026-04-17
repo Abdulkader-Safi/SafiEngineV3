@@ -4,8 +4,8 @@
 #include <safi/safi.h>
 #include <safi/ui/debug_ui.h>
 
-#include <microui.h>
 #include <SDL3/SDL.h>
+#include <microui.h>
 
 void control_system(ecs_iter_t *it) {
   /* Skip game keyboard controls when a MicroUI widget is active (e.g. the
@@ -62,9 +62,9 @@ void control_system(ecs_iter_t *it) {
     /* Update audio listener from the camera pose so 3D sounds pan/attenuate
      * relative to the viewer. Eye follows the same (target + Z=3) used by
      * the render system. */
-    float eye_pos[3] = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
-    float fwd[3]     = { 0, 0, -1 };
-    float up[3]      = { 0, 1,  0 };
+    float eye_pos[3] = {cam->target[0], cam->target[1], cam->target[2] + 3.0f};
+    float fwd[3] = {0, 0, -1};
+    float up[3] = {0, 1, 0};
     safi_audio_set_listener(eye_pos, fwd, up);
   }
 
@@ -76,20 +76,20 @@ void control_system(ecs_iter_t *it) {
   bool over_panel = mu && mu->hover_root != NULL;
 
   static bool prev_lmb = false;
-  bool lmb = in->mouse_buttons[1];  /* SDL_BUTTON_LEFT == 1 */
+  bool lmb = in->mouse_buttons[1]; /* SDL_BUTTON_LEFT == 1 */
   if (lmb && !prev_lmb && cam && !over_panel) {
     int ww = 0, wh = 0;
     SDL_GetWindowSize(SDL_GetKeyboardFocus(), &ww, &wh);
     if (ww > 0 && wh > 0) {
       /* Reconstruct the view/proj used by the render system (see
        * engine/src/render/render_system.c: eye = target + (0,0,3)). */
-      vec3 eye    = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
-      vec3 center = { cam->target[0], cam->target[1], cam->target[2] };
-      vec3 up     = { 0, 1, 0 };
+      vec3 eye = {cam->target[0], cam->target[1], cam->target[2] + 3.0f};
+      vec3 center = {cam->target[0], cam->target[1], cam->target[2]};
+      vec3 up = {0, 1, 0};
       mat4 view, proj, vp, inv_vp;
       glm_lookat(eye, center, up, view);
-      glm_perspective(cam->fov_y_radians, (float)ww / (float)wh,
-                      cam->z_near, cam->z_far, proj);
+      glm_perspective(cam->fov_y_radians, (float)ww / (float)wh, cam->z_near,
+                      cam->z_far, proj);
       glm_mat4_mul(proj, view, vp);
       glm_mat4_inv(vp, inv_vp);
 
@@ -98,10 +98,11 @@ void control_system(ecs_iter_t *it) {
       float ny = 1.0f - (2.0f * in->mouse_y / (float)wh);
 
       /* Unproject a far-plane point, then build dir = normalize(p - eye). */
-      vec4 ndc = { nx, ny, 1.0f, 1.0f };
+      vec4 ndc = {nx, ny, 1.0f, 1.0f};
       vec4 world;
       glm_mat4_mulv(inv_vp, ndc, world);
-      vec3 far_pt = { world[0] / world[3], world[1] / world[3], world[2] / world[3] };
+      vec3 far_pt = {world[0] / world[3], world[1] / world[3],
+                     world[2] / world[3]};
       vec3 dir;
       glm_vec3_sub(far_pt, eye, dir);
       glm_vec3_normalize(dir);
@@ -109,22 +110,30 @@ void control_system(ecs_iter_t *it) {
       SafiRayHit hit;
       if (safi_physics_raycast(it->world, eye, dir, 100.0f, 0, &hit)) {
         const SafiName *n = ecs_get(it->world, hit.entity, SafiName);
-        SAFI_LOG_INFO("raycast hit: %s (entity %llu) at (%.2f, %.2f, %.2f) frac=%.2f",
-                      n ? n->value : "<unnamed>",
-                      (unsigned long long)hit.entity,
-                      hit.point[0], hit.point[1], hit.point[2], hit.fraction);
+        SAFI_LOG_INFO(
+            "raycast hit: %s (entity %llu) at (%.2f, %.2f, %.2f) frac=%.2f",
+            n ? n->value : "<unnamed>", (unsigned long long)hit.entity,
+            hit.point[0], hit.point[1], hit.point[2], hit.fraction);
         /* 3D impact sfx at the hit point on the sfx bus. */
         if (g_demo.click_sfx.id)
-          safi_audio_play_3d(g_demo.click_sfx, safi_audio_bus_sfx(),
-                             hit.point, 1.0f, 1.0f, false);
+          safi_audio_play_3d(g_demo.click_sfx, safi_audio_bus_sfx(), hit.point,
+                             1.0f, 1.0f, false);
       } else {
         SAFI_LOG_INFO("raycast: miss");
         /* 2D UI click on miss. */
         if (g_demo.click_sfx.id)
-          safi_audio_play(g_demo.click_sfx, safi_audio_bus_ui(),
-                          0.7f, 1.0f, false);
+          safi_audio_play(g_demo.click_sfx, safi_audio_bus_ui(), 0.7f, 1.0f,
+                          false);
       }
     }
   }
   prev_lmb = lmb;
+
+  /* F5 = save scene, F9 = reload scene. */
+  if (in->keys_pressed[SDL_SCANCODE_F5]) {
+    safi_scene_save(it->world, "scene.json");
+  }
+  if (in->keys_pressed[SDL_SCANCODE_F9]) {
+    safi_scene_load(it->world, "scene.json");
+  }
 }

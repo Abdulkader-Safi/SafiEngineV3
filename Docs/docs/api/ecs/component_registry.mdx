@@ -1,0 +1,85 @@
+---
+title: Component Registry
+description: Central table mapping ECS component IDs to serialize/deserialize/inspector callbacks.
+---
+
+# Component Registry
+
+```c
+#include <safi/ecs/component_registry.h>
+```
+
+The component registry is a central lookup table mapping each registered component's `ecs_id_t` to its human-readable name, serialize/deserialize callbacks (for scene files), and an inspector draw callback.
+
+The [scene serializer](../scene/scene), the [MicroUI inspector](../ui/debug_ui), and the future editor's "+ Add Component" menu all query this table.
+
+## Registering a component
+
+Stock engine components are registered automatically during `safi_register_builtin_components`. To register a custom component:
+
+```c
+#include <safi/ecs/component_registry.h>
+
+static cJSON *ser_my_comp(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    const MyComponent *c = ecs_get(w, e, MyComponent);
+    if (!c) return NULL;
+    cJSON *j = cJSON_CreateObject();
+    cJSON_AddNumberToObject(j, "speed", (double)c->speed);
+    return j;
+}
+
+static void deser_my_comp(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
+    MyComponent c = { .speed = (float)cJSON_GetObjectItem(j, "speed")->valuedouble };
+    ecs_set_ptr(w, e, MyComponent, &c);
+}
+
+// Call after ECS_COMPONENT_DEFINE(world, MyComponent):
+safi_component_registry_register(&(SafiComponentInfo){
+    .id          = ecs_id(MyComponent),
+    .name        = "MyComponent",
+    .size        = sizeof(MyComponent),
+    .serialize   = ser_my_comp,
+    .deserialize = deser_my_comp,
+    .draw        = NULL,           // no inspector row (optional)
+    .serializable = true,
+});
+```
+
+## API
+
+```c
+void safi_component_registry_init(void);
+void safi_component_registry_register(const SafiComponentInfo *info);
+
+int                      safi_component_registry_count(void);
+const SafiComponentInfo *safi_component_registry_get(int index);
+const SafiComponentInfo *safi_component_registry_find(ecs_id_t id);
+const SafiComponentInfo *safi_component_registry_find_by_name(const char *name);
+```
+
+## SafiComponentInfo
+
+```c
+typedef struct SafiComponentInfo {
+    ecs_id_t          id;           // flecs component id
+    const char       *name;         // "SafiTransform", "MyComponent", ...
+    size_t            size;         // sizeof(T)
+    SafiSerializeFn   serialize;    // NULL = not written to scene files
+    SafiDeserializeFn deserialize;  // NULL = not read from scene files
+    SafiInspectorFn   draw;         // NULL = no inspector row
+    bool              serializable; // convenience flag
+} SafiComponentInfo;
+```
+
+## Callback signatures
+
+```c
+typedef cJSON *(*SafiSerializeFn)  (ecs_world_t *w, ecs_entity_t e, ecs_id_t id);
+typedef void   (*SafiDeserializeFn)(ecs_world_t *w, ecs_entity_t e, const cJSON *json);
+typedef void   (*SafiInspectorFn)  (mu_Context *ctx, ecs_world_t *w, ecs_entity_t e);
+```
+
+## See also
+
+- [Scene Serialization](../scene/scene) — uses the registry to serialize entities
+- [Stock Components](./components) — all 15 built-in components are registered

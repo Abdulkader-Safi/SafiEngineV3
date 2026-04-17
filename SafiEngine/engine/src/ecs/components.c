@@ -1,4 +1,5 @@
 #include "safi/ecs/components.h"
+#include "component_serializers.h"
 
 ECS_COMPONENT_DECLARE(SafiTransform);
 ECS_COMPONENT_DECLARE(SafiGlobalTransform);
@@ -32,4 +33,6 @@ void safi_register_builtin_components(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, SafiSpotLight);
     ECS_COMPONENT_DEFINE(world, SafiRectLight);
     ECS_COMPONENT_DEFINE(world, SafiSkyLight);
+
+    safi_register_builtin_component_info(world);
 }

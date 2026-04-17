@@ -17,6 +17,11 @@
   },
   {
     "type": "dir",
+    "name": "scene",
+    "label": "Scene"
+  },
+  {
+    "type": "dir",
     "name": "audio",
     "label": "Audio"
   },

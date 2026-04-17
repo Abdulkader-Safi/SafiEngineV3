@@ -31,6 +31,7 @@ target_link_libraries(safi_engine
         microui
         Jolt
         miniaudio
+        cjson
     PRIVATE
         safi_warnings
 )

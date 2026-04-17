@@ -3,6 +3,10 @@
 #include "safi/ecs/phases.h"
 #include "safi/core/log.h"
 
+/* Internal header from engine/src/ecs/ — registers physics components
+ * with the component registry after their ECS_COMPONENT_DEFINE. */
+#include "../ecs/component_serializers.h"
+
 #include "jolt_wrapper.h"
 
 ECS_COMPONENT_DECLARE(SafiRigidBody);
@@ -160,6 +164,8 @@ bool safi_physics_init(ecs_world_t *world) {
         }),
         .callback = physics_system,
     });
+
+    safi_register_physics_component_info();
 
     SAFI_LOG_INFO("physics: Jolt initialized (single-threaded, gravity -9.81)");
     return true;

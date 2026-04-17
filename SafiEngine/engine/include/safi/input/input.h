@@ -25,6 +25,14 @@ typedef struct SafiInput {
     float mouse_dy;
     bool  mouse_buttons[8];
 
+    /* Mouse wheel delta for this frame (positive = scroll up/right). */
+    float scroll_x;
+    float scroll_y;
+
+    /* Keyboard modifier mask (SDL_KMOD_CTRL, SDL_KMOD_SHIFT, etc.).
+     * Refreshed every frame from SDL_GetModState(). */
+    uint16_t modifiers;
+
     bool quit_requested;
 } SafiInput;
 

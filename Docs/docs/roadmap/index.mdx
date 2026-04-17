@@ -5,7 +5,7 @@ description: Current implementation status of every SafiEngine subsystem.
 
 # Feature Roadmap
 
-Status of every engine subsystem as of the latest audit (April 2026). Recently added: **procedural primitives** (plane / box / sphere / capsule) with inspector-editable color and texture, and **miniaudio-powered audio** with 2D/3D playback, mixer buses, and streaming.
+Status of every engine subsystem as of the latest audit (April 2026). Recently added: **JSON scene serialization** (save/load/clear with a component registry), **asset handles** (refcounted, path-cached, hot-reload stub), **procedural primitives** (plane/box/sphere/capsule), and **miniaudio audio** with 2D/3D playback.
 
 | Badge           | Meaning                               |
 | --------------- | ------------------------------------- |
@@ -17,18 +17,20 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 
 ## ECS & Core
 
-| Feature                   | Status          | API Page                                |
-| ------------------------- | --------------- | --------------------------------------- |
-| Entities                  | **Implemented** | [ECS Overview](/api/ecs/overview)       |
-| Components                | **Implemented** | [Stock Components](/api/ecs/components) |
-| Queries                   | **Implemented** | [Systems](/api/ecs/systems)             |
-| Resources / Singletons    | **Implemented** | [Resources](/api/ecs/resources)         |
-| Add/remove at runtime     | **Implemented** | [ECS Overview](/api/ecs/overview)       |
-| Parent/child hierarchy    | **Partial**     | [ECS Overview](/api/ecs/overview)       |
-| Startup stage             | **WIP**         | [Scheduler](/api/core/scheduler)        |
-| Fixed update stage        | **Implemented** | [Scheduler](/api/core/scheduler)        |
-| Engine-owned render stage | **Implemented** | [Scheduler](/api/core/scheduler)        |
-| System ordering API       | **Partial**     | [Scheduler](/api/core/scheduler)        |
+| Feature                    | Status          | API Page                                |
+| -------------------------- | --------------- | --------------------------------------- |
+| Entities                   | **Implemented** | [ECS Overview](/api/ecs/overview)       |
+| Components                 | **Implemented** | [Stock Components](/api/ecs/components) |
+| Queries                    | **Implemented** | [Systems](/api/ecs/systems)             |
+| Resources / Singletons     | **Implemented** | [Resources](/api/ecs/resources)         |
+| Add/remove at runtime      | **Implemented** | [ECS Overview](/api/ecs/overview)       |
+| Parent/child hierarchy     | **Partial**     | [ECS Overview](/api/ecs/overview)       |
+| Startup stage              | **WIP**         | [Scheduler](/api/core/scheduler)        |
+| Fixed update stage         | **Implemented** | [Scheduler](/api/core/scheduler)        |
+| Engine-owned render stage  | **Implemented** | [Scheduler](/api/core/scheduler)        |
+| System ordering API        | **Partial**     | [Scheduler](/api/core/scheduler)        |
+| Component registry         | **Implemented** | [Registry](/api/ecs/component_registry) |
+| Scene serialization (JSON) | **Implemented** | [Scene](/api/scene/scene)               |
 
 ## Transform & Spatial
 
@@ -115,7 +117,8 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 | Mouse position & buttons             | **Implemented** | [Input](/api/input/input) |
 | Mouse delta                          | **Implemented** | [Input](/api/input/input) |
 | Input abstraction (ECS singleton)    | **Implemented** | [Input](/api/input/input) |
-| Scroll / mouse wheel                 | **WIP**         | [Input](/api/input/input) |
+| Scroll / mouse wheel                 | **Implemented** | [Input](/api/input/input) |
+| Keyboard modifiers (Ctrl/Shift/etc.) | **Implemented** | [Input](/api/input/input) |
 
 ## Time
 
@@ -147,7 +150,7 @@ The SafiEngine editor is a debug-UI–based scene authoring tool that runs in th
 | Inspector with editable components           | **Implemented** | Number, vec3, checkbox, dropdown widgets           |
 | Entity selection                             | **Implemented** | Click in scene panel or programmatically           |
 | Play / Pause / Stop toolbar                  | **WIP**         | Toggles fixed-update and transform mutations       |
-| Scene serialization (save/load)              | **WIP**         | JSON or flecs-native format                        |
+| Scene serialization (save/load)              | **Implemented** | JSON format via cJSON + component registry         |
 | Asset browser panel                          | **WIP**         | Browse meshes, materials, textures from disk       |
 | Drag-and-drop asset assignment               | **WIP**         | Drop a mesh onto a MeshRenderer field              |
 | Viewport gizmos (translate / rotate / scale) | **WIP**         | 3D handles overlaid on selected entity             |

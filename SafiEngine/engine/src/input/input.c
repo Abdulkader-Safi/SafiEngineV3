@@ -15,6 +15,8 @@ void safi_input_pump(ecs_world_t *world) {
     memset(in->keys_released, 0, sizeof(in->keys_released));
     in->mouse_dx = 0.0f;
     in->mouse_dy = 0.0f;
+    in->scroll_x = 0.0f;
+    in->scroll_y = 0.0f;
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -42,6 +44,10 @@ void safi_input_pump(ecs_world_t *world) {
             in->mouse_dx += e.motion.xrel;
             in->mouse_dy += e.motion.yrel;
             break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            in->scroll_x += e.wheel.x;
+            in->scroll_y += e.wheel.y;
+            break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
             if (e.button.button < 8) {
@@ -52,6 +58,8 @@ void safi_input_pump(ecs_world_t *world) {
         default: break;
         }
     }
+
+    in->modifiers = (uint16_t)SDL_GetModState();
 
     ecs_singleton_modified(world, SafiInput);
 }

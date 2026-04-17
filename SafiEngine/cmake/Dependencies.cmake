@@ -192,19 +192,37 @@ set(SAFI_FONT_DST
     "${CMAKE_SOURCE_DIR}/engine/assets/fonts/ProggyClean.ttf")
 
 if(NOT EXISTS "${SAFI_FONT_DST}")
-    message(STATUS "SafiEngine: downloading ProggyClean.ttf")
-    file(DOWNLOAD
+  message(STATUS "SafiEngine: downloading ProggyClean.ttf")
+  file(DOWNLOAD
         "${SAFI_FONT_URL}"
         "${SAFI_FONT_DST}"
         SHOW_PROGRESS
         STATUS _font_dl_status
     )
-    list(GET _font_dl_status 0 _font_dl_code)
-    if(NOT _font_dl_code EQUAL 0)
-        message(WARNING "Failed to download ProggyClean.ttf (status=${_font_dl_status}). "
+  list(GET _font_dl_status 0 _font_dl_code)
+  if(NOT _font_dl_code EQUAL 0)
+    message(WARNING "Failed to download ProggyClean.ttf (status=${_font_dl_status}). "
                         "Place a .ttf manually at ${SAFI_FONT_DST}.")
-    endif()
+  endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# cJSON — lightweight JSON parser/writer for scene serialization
+# ---------------------------------------------------------------------------
+set(ENABLE_CJSON_TEST    OFF CACHE BOOL "" FORCE)
+set(ENABLE_CJSON_UTILS   OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_AND_STATIC_LIBS OFF CACHE BOOL "" FORCE)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+
+FetchContent_Declare(cjson
+    GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
+    GIT_TAG        v1.7.18
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(cjson)
+target_include_directories(cjson PUBLIC ${cjson_SOURCE_DIR})
+unset(CMAKE_POLICY_VERSION_MINIMUM CACHE)
 
 # Sample glTF asset — fetched at configure time so the demo runs offline.
 # ---------------------------------------------------------------------------
@@ -214,16 +232,16 @@ set(SAFI_SAMPLE_GLB_DST
     "${CMAKE_SOURCE_DIR}/examples/gltf_viewer/assets/models/BoxTextured.glb")
 
 if(NOT EXISTS "${SAFI_SAMPLE_GLB_DST}")
-    message(STATUS "SafiEngine: downloading BoxTextured.glb sample asset")
-    file(DOWNLOAD
+  message(STATUS "SafiEngine: downloading BoxTextured.glb sample asset")
+  file(DOWNLOAD
         "${SAFI_SAMPLE_GLB_URL}"
         "${SAFI_SAMPLE_GLB_DST}"
         SHOW_PROGRESS
         STATUS _dl_status
     )
-    list(GET _dl_status 0 _dl_code)
-    if(NOT _dl_code EQUAL 0)
-        message(WARNING "Failed to download BoxTextured.glb (status=${_dl_status}). "
+  list(GET _dl_status 0 _dl_code)
+  if(NOT _dl_code EQUAL 0)
+    message(WARNING "Failed to download BoxTextured.glb (status=${_dl_status}). "
                         "Place a .glb manually at ${SAFI_SAMPLE_GLB_DST}.")
-    endif()
+  endif()
 endif()

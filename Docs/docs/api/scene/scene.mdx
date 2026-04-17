@@ -1,0 +1,81 @@
+---
+title: Scene Serialization
+description: Save and load entity scenes as JSON files with full component round-tripping.
+---
+
+# Scene Serialization
+
+```c
+#include <safi/scene/scene.h>
+```
+
+SafiEngine can save the current ECS world to a JSON file and load it back. The serializer walks every entity with `SafiName`, queries the [component registry](../ecs/component_registry) for each component's serialize/deserialize callbacks, and writes structured JSON via cJSON.
+
+## API
+
+```c
+bool safi_scene_save (ecs_world_t *world, const char *path);
+bool safi_scene_load (ecs_world_t *world, const char *path);
+void safi_scene_clear(ecs_world_t *world);
+```
+
+- **`safi_scene_save`** writes all named entities + their serializable components to `path`.
+- **`safi_scene_load`** clears the scene first, then creates entities from the JSON file.
+- **`safi_scene_clear`** deletes every entity with `SafiName` (leaves singletons untouched).
+
+## Scene file format (v1)
+
+```json
+{
+  "version": 1,
+  "entities": [
+    {
+      "name": "Model",
+      "parent": null,
+      "components": {
+        "SafiTransform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "SafiMeshRenderer": {
+          "model_path": "models/player.glb",
+          "visible": true
+        }
+      }
+    },
+    {
+      "name": "FallingBox",
+      "parent": "Model",
+      "components": {
+        "SafiTransform": { ... },
+        "SafiRigidBody": { "type": 1, "mass": 1.0, "friction": 0.5, "restitution": 0.3 },
+        "SafiCollider": { "shape": 0, "half_extents": [0.15, 0.15, 0.15] }
+      }
+    }
+  ]
+}
+```
+
+### Key decisions
+
+- **Parent references** use the parent entity's `SafiName.value` string (not a numeric id). Names must be unique within a scene for parent resolution to work.
+- **`SafiMeshRenderer.model`** is serialized as a path string (`"model_path"`). On load, the path is resolved through the [asset registry](../render/assets) via `safi_assets_load_model_lit`.
+- **`SafiPrimitive`** serializes shape, dims, color, and texture_path. The engine's `primitive_system` rebuilds the GPU mesh automatically on the next frame.
+- **`SafiGlobalTransform`** is never serialized — it's computed each frame by the transform propagation system. The loader auto-adds it when a `SafiTransform` is deserialized.
+- **Physics private fields** (`_body_id`, `_registered`) are skipped. Jolt re-registers bodies when the components are attached.
+
+## Demo keybinds
+
+The `gltf_viewer` demo maps:
+
+- **F5** — `safi_scene_save(world, "scene.json")`
+- **F9** — `safi_scene_load(world, "scene.json")`
+
+Edit `scene.json` by hand (move an entity, change a color), then press F9 to see the changes.
+
+## See also
+
+- [Component Registry](../ecs/component_registry) — how serialize/deserialize callbacks are registered
+- [Asset System](../render/assets) — model path round-tripping
+- [Stock Components](../ecs/components) — what gets serialized

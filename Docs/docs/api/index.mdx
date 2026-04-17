@@ -25,8 +25,9 @@ All dependencies are pulled in by CMake `FetchContent`. You only need CMake and 
 | [Render](./render/overview)       | `<safi/render/…>` | SDL_gpu renderer, meshes, materials, shaders, glTF       | Implemented |
 | [Primitives](./render/primitives) | `<safi/render/…>` | Procedural plane/box/sphere/capsule with color + texture | Implemented |
 | [Lighting](./render/lighting)     | `<safi/render/…>` | Directional, point, ambient lights                       | WIP         |
-| [Assets](./render/assets)         | `<safi/render/…>` | Asset handles, caching, lifecycle                        | WIP         |
-| [Input](./input/input)            | `<safi/input/…>`  | Keyboard/mouse snapshot singleton                        | Implemented |
+| [Assets](./render/assets)         | `<safi/render/…>` | Asset handles, caching, hot-reload stub                  | Implemented |
+| [Scene](./scene/scene)            | `<safi/scene/…>`  | JSON save/load/clear with component registry             | Implemented |
+| [Input](./input/input)            | `<safi/input/…>`  | Keyboard/mouse/scroll/modifiers snapshot singleton       | Implemented |
 | [UI](./ui/debug_ui)               | `<safi/ui/…>`     | MicroUI debug overlay                                    | Implemented |
 | [Physics](./ecs/physics)          | —                 | Colliders, rigid bodies, raycasts, overlap queries       | Partial     |
 | [Audio](./audio/audio)            | `<safi/audio/…>`  | 2D/3D playback, mixer buses, streaming                   | Implemented |

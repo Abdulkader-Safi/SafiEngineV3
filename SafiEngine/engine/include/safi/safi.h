@@ -31,6 +31,9 @@
 #include "safi/render/light_system.h"
 #include "safi/render/render_system.h"
 
+#include "safi/scene/scene.h"
+#include "safi/ecs/component_registry.h"
+
 #include "safi/physics/physics.h"
 
 #include "safi/audio/audio.h"
