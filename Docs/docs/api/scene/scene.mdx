@@ -1,6 +1,6 @@
 ---
 title: Scene Serialization
-description: Save and load entity scenes as JSON files with full component round-tripping.
+description: Save, load, snapshot, and restore entity scenes with full component round-tripping.
 ---
 
 # Scene Serialization
@@ -9,9 +9,9 @@ description: Save and load entity scenes as JSON files with full component round
 #include <safi/scene/scene.h>
 ```
 
-SafiEngine can save the current ECS world to a JSON file and load it back. The serializer walks every entity with `SafiName`, queries the [component registry](../ecs/component_registry) for each component's serialize/deserialize callbacks, and writes structured JSON via cJSON.
+SafiEngine can save the current ECS world to a JSON file, load it back, and capture in-memory snapshots for things like Play→Stop. The serializer walks every entity with `SafiName`, queries the [component registry](../ecs/component_registry) for each component's serialize/deserialize callbacks, and writes structured JSON via cJSON.
 
-## API
+## File-based API
 
 ```c
 bool safi_scene_save (ecs_world_t *world, const char *path);
@@ -22,6 +22,39 @@ void safi_scene_clear(ecs_world_t *world);
 - **`safi_scene_save`** writes all named entities + their serializable components to `path`.
 - **`safi_scene_load`** clears the scene first, then creates entities from the JSON file.
 - **`safi_scene_clear`** deletes every entity with `SafiName` (leaves singletons untouched).
+
+## In-memory snapshot / restore
+
+```c
+cJSON *safi_scene_snapshot_entities(ecs_world_t *world,
+                                    const ecs_entity_t *ids, size_t count);
+cJSON *safi_scene_snapshot_all     (ecs_world_t *world);
+bool   safi_scene_restore_snapshot (ecs_world_t *world, const cJSON *snapshot);
+```
+
+- **`safi_scene_snapshot_entities`** serializes a specific set of entities into a heap-owned cJSON object (caller frees with `cJSON_Delete`). Entities without `SafiName` are skipped.
+- **`safi_scene_snapshot_all`** is a shorthand for the full world — same shape, same callbacks as `safi_scene_save`.
+- **`safi_scene_restore_snapshot`** applies a snapshot back onto **existing** entities, matched by `SafiName`. It never creates or deletes entities, so `ecs_entity_t` handles held elsewhere remain valid. Missing names are logged as warnings and skipped; parent/child pairs in the snapshot are ignored (reparenting during Play is out of scope for M1).
+
+This asymmetry is the whole point: `safi_scene_load` is destructive and rebuilds ids (correct for "open a file"), while `safi_scene_restore_snapshot` is non-destructive (correct for "leave Play mode and rewind").
+
+```c
+/* Play → Stop pattern */
+cJSON *before_play = safi_scene_snapshot_all(world);
+safi_editor_set_mode(world, SAFI_EDITOR_MODE_PLAY);
+/* ... user plays ... */
+safi_editor_set_mode(world, SAFI_EDITOR_MODE_EDIT);
+safi_scene_restore_snapshot(world, before_play);
+cJSON_Delete(before_play);
+```
+
+## Entity lookup by name
+
+```c
+ecs_entity_t safi_scene_find_entity_by_name(ecs_world_t *world, const char *name);
+```
+
+Linear scan over every entity carrying `SafiName`. Returns `0` when there is no match. Useful after `safi_scene_load`, which destroys and recreates entities and invalidates any cached ids — look the well-known names back up to refresh your handles.
 
 ## Scene file format (v1)
 
@@ -70,9 +103,15 @@ void safi_scene_clear(ecs_world_t *world);
 The `gltf_viewer` demo maps:
 
 - **F5** — `safi_scene_save(world, "scene.json")`
-- **F9** — `safi_scene_load(world, "scene.json")`
+- **F6** — `safi_scene_snapshot_all(world)` (stashes a cJSON blob in memory)
+- **F7** — `safi_scene_restore_snapshot(world, blob)` (resets components to the last snapshot)
+- **F9** — `safi_scene_load(world, "scene.json")` (refreshes cached `g_demo` handles)
 
 Edit `scene.json` by hand (move an entity, change a color), then press F9 to see the changes.
+
+:::warning Cached entity ids after `safi_scene_load`
+`safi_scene_load` calls `safi_scene_clear` before loading, so every `ecs_entity_t` held outside the world (e.g. in a demo-state struct or the Inspector's selection) goes stale. Use `safi_scene_find_entity_by_name` to refresh well-known handles, and guard dereferences with `ecs_is_alive`. Snapshot restore does **not** have this problem — ids stay stable.
+:::
 
 ## See also
 

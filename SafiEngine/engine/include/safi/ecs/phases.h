@@ -29,11 +29,20 @@
 /* Custom phase for fixed-timestep systems. Set up in safi_ecs_create. */
 extern ecs_entity_t SafiFixedUpdate;
 
+/* Custom phase for variable-rate gameplay systems. Distinct from the
+ * built-in EcsOnUpdate so the engine can pause user gameplay (by skipping
+ * this pipeline) without also freezing engine-owned variable systems like
+ * input pumping, camera updates, or transform propagation.
+ *
+ * Set up in safi_ecs_create. */
+extern ecs_entity_t SafiGamePhase;
+
 /* Engine-owned pipeline handles. Used internally by safi_app_tick; user
  * code normally doesn't touch these, but they're exposed for tests and for
  * apps that want to step individual stages manually. */
 ecs_entity_t safi_ecs_variable_pipeline(void);
 ecs_entity_t safi_ecs_fixed_pipeline(void);
+ecs_entity_t safi_ecs_game_pipeline(void);
 ecs_entity_t safi_ecs_render_pipeline(void);
 
 #endif /* SAFI_ECS_PHASES_H */

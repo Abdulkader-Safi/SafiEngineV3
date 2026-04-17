@@ -1003,6 +1003,13 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     if (mu_begin_window(ctx, "Inspector",
                         mu_rect((int)insp_x, 20, 300, 520))) {
 
+        /* Drop a stale selection (e.g. after scene_load or scene_clear has
+         * deleted-and-recreated entities). Otherwise ecs_get asserts on
+         * the dead id. */
+        if (S.selected_entity && !ecs_is_alive(world, S.selected_entity)) {
+            S.selected_entity = 0;
+        }
+
         if (!S.selected_entity) {
             mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
             mu_label(ctx, "No entity selected");

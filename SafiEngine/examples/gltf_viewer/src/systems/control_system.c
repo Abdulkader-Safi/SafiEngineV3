@@ -5,7 +5,24 @@
 #include <safi/ui/debug_ui.h>
 
 #include <SDL3/SDL.h>
+#include <cJSON.h>
 #include <microui.h>
+
+/* In-memory snapshot produced by F6 and consumed by F7. Owned here, freed
+ * on the next F6 press or at process exit. Static because this is a
+ * single-player demo scratchpad, not something the engine needs to track. */
+static cJSON *g_control_snapshot = NULL;
+
+/* Scene-load clears and recreates every named entity, so the cached
+ * handles in g_demo go stale after F9. Re-look them up by name; names
+ * the loaded scene doesn't contain are zeroed so the guards below skip
+ * their branches instead of dereferencing a dead id. */
+static void refresh_demo_handles(ecs_world_t *world) {
+  g_demo.model_entity  = safi_scene_find_entity_by_name(world, "Model");
+  g_demo.camera_entity = safi_scene_find_entity_by_name(world, "Camera");
+  g_demo.sun_entity    = safi_scene_find_entity_by_name(world, "Sun");
+  g_demo.sky_entity    = safi_scene_find_entity_by_name(world, "Sky");
+}
 
 void control_system(ecs_iter_t *it) {
   /* Skip game keyboard controls when a MicroUI widget is active (e.g. the
@@ -20,9 +37,13 @@ void control_system(ecs_iter_t *it) {
   float dt = it->delta_time;
   float rate = 1.5f; /* rad/s */
 
-  /* Rotate the model entity (arrows + A/D) regardless of selection. */
-  SafiTransform *xform =
-      ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
+  /* Rotate the model entity (arrows + A/D) regardless of selection.
+   * Guard with ecs_is_alive — the handle can go stale if a scene load
+   * replaced the world out from under us. */
+  SafiTransform *xform = NULL;
+  if (g_demo.model_entity && ecs_is_alive(it->world, g_demo.model_entity)) {
+    xform = ecs_get_mut(it->world, g_demo.model_entity, SafiTransform);
+  }
   if (xform) {
 #define APPLY_DELTA(angle, ax, ay, az)                                         \
   do {                                                                         \
@@ -52,7 +73,10 @@ void control_system(ecs_iter_t *it) {
   }
 
   /* W / S → dolly camera */
-  SafiCamera *cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
+  SafiCamera *cam = NULL;
+  if (g_demo.camera_entity && ecs_is_alive(it->world, g_demo.camera_entity)) {
+    cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
+  }
   if (cam) {
     if (in->keys[SDL_SCANCODE_W])
       cam->target[2] -= 2.0f * dt;
@@ -134,6 +158,33 @@ void control_system(ecs_iter_t *it) {
     safi_scene_save(it->world, "scene.json");
   }
   if (in->keys_pressed[SDL_SCANCODE_F9]) {
-    safi_scene_load(it->world, "scene.json");
+    if (safi_scene_load(it->world, "scene.json")) {
+      refresh_demo_handles(it->world);
+    }
+  }
+
+  /* F1 = toggle Edit/Play. Exercises the pipeline gate added in the
+   * editor prerequisites: in Edit mode fixed-update is skipped, so the
+   * falling cube freezes mid-air; flip back to Play and it resumes. */
+  if (in->keys_pressed[SDL_SCANCODE_F1]) {
+    SafiEditorMode m = safi_editor_get_mode(it->world);
+    SafiEditorMode next =
+        (m == SAFI_EDITOR_MODE_PLAY) ? SAFI_EDITOR_MODE_EDIT
+                                     : SAFI_EDITOR_MODE_PLAY;
+    safi_editor_set_mode(it->world, next);
+    SAFI_LOG_INFO("editor: mode → %s",
+                  next == SAFI_EDITOR_MODE_PLAY ? "Play" : "Edit");
+  }
+
+  /* F6 = snapshot the whole world into memory. F7 = restore that
+   * snapshot onto the live entities (ids stay stable, components reset
+   * to their snapshot values). */
+  if (in->keys_pressed[SDL_SCANCODE_F6]) {
+    if (g_control_snapshot) cJSON_Delete(g_control_snapshot);
+    g_control_snapshot = safi_scene_snapshot_all(it->world);
+    SAFI_LOG_INFO("editor: snapshot captured");
+  }
+  if (in->keys_pressed[SDL_SCANCODE_F7] && g_control_snapshot) {
+    safi_scene_restore_snapshot(it->world, g_control_snapshot);
   }
 }

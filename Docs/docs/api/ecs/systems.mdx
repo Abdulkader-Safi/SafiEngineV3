@@ -19,11 +19,11 @@ void my_system(ecs_iter_t *it);
 
 `ecs_iter_t` exposes:
 
-| Field            | Meaning                               |
-| ---------------- | ------------------------------------- |
-| `it->count`      | number of entities in the current batch |
-| `it->delta_time` | seconds since the last frame          |
-| `it->world`      | the world pointer                     |
+| Field            | Meaning                                    |
+| ---------------- | ------------------------------------------ |
+| `it->count`      | number of entities in the current batch    |
+| `it->delta_time` | seconds since the last frame               |
+| `it->world`      | the world pointer                          |
 | `it->ctx`        | arbitrary user pointer set at registration |
 
 Component arrays are fetched with `ecs_field`:
@@ -58,16 +58,16 @@ ecs_system(world, {
 
 ## Pipeline phases
 
-| Phase            | Typical work                                   |
-| ---------------- | ---------------------------------------------- |
-| `EcsOnLoad`      | input, asset streaming, network receive        |
-| `EcsPostLoad`    | derive caches from loaded data                 |
-| `EcsPreUpdate`   | spawn/despawn before the main update step      |
-| `EcsOnUpdate`    | **gameplay logic** (default phase)             |
-| `EcsOnValidate`  | assertions / constraints                       |
-| `EcsPostUpdate`  | post-physics, late transform updates           |
-| `EcsPreStore`    | prepare render data                            |
-| `EcsOnStore`     | **render**, network send                       |
+| Phase           | Typical work                              |
+| --------------- | ----------------------------------------- |
+| `EcsOnLoad`     | input, asset streaming, network receive   |
+| `EcsPostLoad`   | derive caches from loaded data            |
+| `EcsPreUpdate`  | spawn/despawn before the main update step |
+| `EcsOnUpdate`   | **gameplay logic** (default phase)        |
+| `EcsOnValidate` | assertions / constraints                  |
+| `EcsPostUpdate` | post-physics, late transform updates      |
+| `EcsPreStore`   | prepare render data                       |
+| `EcsOnStore`    | **render**, network send                  |
 
 ## Example — rotate with keyboard input
 

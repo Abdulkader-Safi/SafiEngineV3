@@ -42,6 +42,11 @@ int main(int argc, char **argv) {
 
   ecs_world_t *world = safi_app_world(&app);
 
+  /* The demo has no Play/Pause toolbar yet, so opt into Play mode at
+   * startup — otherwise the falling cube would stay frozen in the default
+   * Edit mode. Press F1 at runtime to toggle Edit ↔ Play. */
+  safi_editor_set_mode(world, SAFI_EDITOR_MODE_PLAY);
+
   /* Register user systems. The engine's render system is registered
    * automatically by safi_app_init — only game logic goes here. */
   ecs_system(world,

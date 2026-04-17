@@ -15,6 +15,7 @@
 #include <flecs.h>
 
 #include "safi/core/time.h"
+#include "safi/editor/editor_state.h"
 #include "safi/input/input.h"
 #include "safi/render/assets.h"
 #include "safi/render/primitive_mesh.h"
@@ -172,6 +173,7 @@ extern ECS_COMPONENT_DECLARE(SafiName);
 extern ECS_COMPONENT_DECLARE(SafiSpin);
 extern ECS_COMPONENT_DECLARE(SafiTime);
 extern ECS_COMPONENT_DECLARE(SafiInput);
+extern ECS_COMPONENT_DECLARE(SafiEditorState);
 extern ECS_COMPONENT_DECLARE(SafiDirectionalLight);
 extern ECS_COMPONENT_DECLARE(SafiPointLight);
 extern ECS_COMPONENT_DECLARE(SafiSpotLight);

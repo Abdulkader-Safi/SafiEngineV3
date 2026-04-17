@@ -42,6 +42,65 @@ static void s_pool_free(void) {
     g_name_pool_count = 0;
 }
 
+/* ---- Per-entity serializers (shared by save + snapshot) ----------------- */
+
+/* Serialize `e` into a fresh cJSON object of the shape
+ *     { "name": ..., "parent"?: ..., "components": { ... } }
+ * Returns NULL if the entity has no SafiName (we never serialize unnamed
+ * entities — names are the stable reference used across save/load). */
+static cJSON *serialize_entity(ecs_world_t *world, ecs_entity_t e) {
+    const SafiName *name = ecs_get(world, e, SafiName);
+    if (!name || !name->value) return NULL;
+
+    cJSON *ej = cJSON_CreateObject();
+    cJSON_AddStringToObject(ej, "name", name->value);
+
+    ecs_entity_t parent = ecs_get_target(world, e, EcsChildOf, 0);
+    if (parent) {
+        const SafiName *pn = ecs_get(world, parent, SafiName);
+        if (pn && pn->value)
+            cJSON_AddStringToObject(ej, "parent", pn->value);
+    }
+
+    cJSON *comps = cJSON_CreateObject();
+    int reg_count = safi_component_registry_count();
+    for (int c = 0; c < reg_count; c++) {
+        const SafiComponentInfo *ci = safi_component_registry_get(c);
+        if (!ci->serializable || !ci->serialize) continue;
+        if (!ci->id) continue;                       /* not yet registered */
+        if (ci->id == ecs_id(SafiName)) continue;    /* already at top level */
+        if (!ecs_has_id(world, e, ci->id)) continue;
+
+        cJSON *cj = ci->serialize(world, e, ci->id);
+        if (cj) cJSON_AddItemToObject(comps, ci->name, cj);
+    }
+    cJSON_AddItemToObject(ej, "components", comps);
+    return ej;
+}
+
+/* Deserialize the "components" object of `entry` onto an existing entity.
+ * Does not touch name or parent — those are handled by the caller because
+ * scene load and snapshot restore want different policies. */
+static void deserialize_entity_components(ecs_world_t *world, ecs_entity_t e,
+                                          const cJSON *entry) {
+    const cJSON *comps = cJSON_GetObjectItem(entry, "components");
+    if (!comps) return;
+
+    const cJSON *cj = NULL;
+    cJSON_ArrayForEach(cj, comps) {
+        const char *comp_name = cj->string;
+        const SafiComponentInfo *ci =
+            safi_component_registry_find_by_name(comp_name);
+        if (!ci || !ci->deserialize) {
+            const SafiName *nm = ecs_get(world, e, SafiName);
+            SAFI_LOG_WARN("scene: unknown component '%s' on entity '%s'",
+                          comp_name, (nm && nm->value) ? nm->value : "<unnamed>");
+            continue;
+        }
+        ci->deserialize(world, e, cj);
+    }
+}
+
 /* ---- Save --------------------------------------------------------------- */
 
 bool safi_scene_save(ecs_world_t *world, const char *path) {
@@ -55,38 +114,9 @@ bool safi_scene_save(ecs_world_t *world, const char *path) {
     });
     ecs_iter_t it = ecs_query_iter(world, q);
     while (ecs_query_next(&it)) {
-        SafiName *names = ecs_field(&it, SafiName, 0);
         for (int i = 0; i < it.count; i++) {
-            ecs_entity_t e = it.entities[i];
-            if (!names[i].value) continue;
-
-            cJSON *ej = cJSON_CreateObject();
-            cJSON_AddStringToObject(ej, "name", names[i].value);
-
-            /* Parent reference. */
-            ecs_entity_t parent = ecs_get_target(world, e, EcsChildOf, 0);
-            if (parent) {
-                const SafiName *pn = ecs_get(world, parent, SafiName);
-                if (pn && pn->value)
-                    cJSON_AddStringToObject(ej, "parent", pn->value);
-            }
-
-            /* Serialize each registered component. */
-            cJSON *comps = cJSON_CreateObject();
-            int reg_count = safi_component_registry_count();
-            for (int c = 0; c < reg_count; c++) {
-                const SafiComponentInfo *ci = safi_component_registry_get(c);
-                if (!ci->serializable || !ci->serialize) continue;
-                if (!ci->id) continue;  /* not yet registered (e.g. physics) */
-                /* Skip SafiName — already stored as top-level "name". */
-                if (ci->id == ecs_id(SafiName)) continue;
-                if (!ecs_has_id(world, e, ci->id)) continue;
-
-                cJSON *cj = ci->serialize(world, e, ci->id);
-                if (cj) cJSON_AddItemToObject(comps, ci->name, cj);
-            }
-            cJSON_AddItemToObject(ej, "components", comps);
-            cJSON_AddItemToArray(entities, ej);
+            cJSON *ej = serialize_entity(world, it.entities[i]);
+            if (ej) cJSON_AddItemToArray(entities, ej);
         }
     }
     ecs_query_fini(q);
@@ -200,21 +230,7 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
     /* --- Pass 2: deserialize components --- */
     for (int i = 0; i < entity_count; i++) {
         cJSON *ej = cJSON_GetArrayItem(entities, i);
-        cJSON *comps = cJSON_GetObjectItem(ej, "components");
-        if (!comps) continue;
-
-        cJSON *cj = NULL;
-        cJSON_ArrayForEach(cj, comps) {
-            const char *comp_name = cj->string;
-            const SafiComponentInfo *ci =
-                safi_component_registry_find_by_name(comp_name);
-            if (!ci || !ci->deserialize) {
-                SAFI_LOG_WARN("scene: unknown component '%s' on entity '%s'",
-                              comp_name, map[i].name);
-                continue;
-            }
-            ci->deserialize(world, map[i].entity, cj);
-        }
+        deserialize_entity_components(world, map[i].entity, ej);
 
         /* Ensure GlobalTransform is present if Transform was deserialized,
          * so the propagation system writes the world matrix. */
@@ -243,5 +259,112 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
     cJSON_Delete(root);
 
     SAFI_LOG_INFO("scene: loaded %d entities from '%s'", entity_count, path);
+    return true;
+}
+
+/* ---- Snapshot / restore ------------------------------------------------- *
+ *
+ * Snapshots share the on-disk JSON shape so the same registry callbacks
+ * and the same per-entity helpers drive both paths. Restore diverges
+ * from load: it matches by SafiName onto *existing* entities and never
+ * creates or deletes, so entity ids remain stable across Play→Stop. */
+
+/* Build a cJSON root with { version, entities: [...] } given a prebuilt
+ * entity-array. Takes ownership of `entities`. */
+static cJSON *build_snapshot_root(cJSON *entities) {
+    cJSON *root = cJSON_CreateObject();
+    if (!root) { cJSON_Delete(entities); return NULL; }
+    cJSON_AddNumberToObject(root, "version", SCENE_VERSION);
+    cJSON_AddItemToObject(root, "entities", entities);
+    return root;
+}
+
+cJSON *safi_scene_snapshot_entities(ecs_world_t *world,
+                                    const ecs_entity_t *ids, size_t count) {
+    cJSON *entities = cJSON_CreateArray();
+    if (!entities) return NULL;
+
+    for (size_t i = 0; i < count; i++) {
+        cJSON *ej = serialize_entity(world, ids[i]);
+        if (ej) cJSON_AddItemToArray(entities, ej);
+    }
+    return build_snapshot_root(entities);
+}
+
+cJSON *safi_scene_snapshot_all(ecs_world_t *world) {
+    cJSON *entities = cJSON_CreateArray();
+    if (!entities) return NULL;
+
+    ecs_query_t *q = ecs_query(world, {
+        .terms = {{ .id = ecs_id(SafiName) }},
+        .cache_kind = EcsQueryCacheNone,
+    });
+    ecs_iter_t it = ecs_query_iter(world, q);
+    while (ecs_query_next(&it)) {
+        for (int i = 0; i < it.count; i++) {
+            cJSON *ej = serialize_entity(world, it.entities[i]);
+            if (ej) cJSON_AddItemToArray(entities, ej);
+        }
+    }
+    ecs_query_fini(q);
+    return build_snapshot_root(entities);
+}
+
+/* Look up a live entity by SafiName. Linear scan; the world has tens of
+ * named entities in practice, so the O(n*m) inside restore is fine.
+ *
+ * Care: stopping a flecs query iterator early leaks a stack-allocator
+ * cursor that later asserts on ecs_fini. Call ecs_iter_fini on the early
+ * match path so the iterator is released cleanly. */
+ecs_entity_t safi_scene_find_entity_by_name(ecs_world_t *world, const char *name) {
+    ecs_query_t *q = ecs_query(world, {
+        .terms = {{ .id = ecs_id(SafiName) }},
+        .cache_kind = EcsQueryCacheNone,
+    });
+    ecs_entity_t found = 0;
+    ecs_iter_t it = ecs_query_iter(world, q);
+    while (ecs_query_next(&it)) {
+        SafiName *names = ecs_field(&it, SafiName, 0);
+        for (int i = 0; i < it.count; i++) {
+            if (names[i].value && strcmp(names[i].value, name) == 0) {
+                found = it.entities[i];
+                ecs_iter_fini(&it);
+                goto done;
+            }
+        }
+    }
+done:
+    ecs_query_fini(q);
+    return found;
+}
+
+bool safi_scene_restore_snapshot(ecs_world_t *world, const cJSON *snapshot) {
+    if (!snapshot) return false;
+
+    const cJSON *entities = cJSON_GetObjectItem(snapshot, "entities");
+    if (!entities || !cJSON_IsArray(entities)) {
+        SAFI_LOG_ERROR("scene: snapshot missing 'entities' array");
+        return false;
+    }
+
+    int restored = 0, missing = 0;
+    const cJSON *ej = NULL;
+    cJSON_ArrayForEach(ej, entities) {
+        const cJSON *nj = cJSON_GetObjectItem(ej, "name");
+        if (!nj || !cJSON_IsString(nj)) continue;
+
+        ecs_entity_t e = safi_scene_find_entity_by_name(world, nj->valuestring);
+        if (!e) {
+            SAFI_LOG_WARN("scene: snapshot entity '%s' not present in world; skipped",
+                          nj->valuestring);
+            missing++;
+            continue;
+        }
+        deserialize_entity_components(world, e, ej);
+        restored++;
+    }
+
+    SAFI_LOG_INFO("scene: restored %d entities from snapshot (%d missing)",
+                  restored, missing);
     return true;
 }

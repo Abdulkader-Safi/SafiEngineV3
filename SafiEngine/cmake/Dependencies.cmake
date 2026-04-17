@@ -221,7 +221,7 @@ FetchContent_Declare(cjson
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(cjson)
-target_include_directories(cjson PUBLIC ${cjson_SOURCE_DIR})
+target_include_directories(cjson PUBLIC $<BUILD_INTERFACE:${cjson_SOURCE_DIR}>)
 unset(CMAKE_POLICY_VERSION_MINIMUM CACHE)
 
 # Sample glTF asset — fetched at configure time so the demo runs offline.

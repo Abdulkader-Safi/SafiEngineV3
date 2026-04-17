@@ -1,6 +1,6 @@
 ---
 title: Scheduler & Stages
-description: Three pipelines per frame — variable, fixed, and render — built on flecs phases.
+description: Four pipelines per frame — variable, fixed, game, render — built on flecs phases, gated by editor mode.
 ---
 
 # Scheduler & Stages
@@ -10,25 +10,28 @@ description: Three pipelines per frame — variable, fixed, and render — built
 #include <safi/ecs/phases.h>
 ```
 
-SafiEngine runs **three** flecs pipelines per frame, in a fixed order. Each pipeline selects systems by the phase they depend on.
+SafiEngine runs **four** flecs pipelines per frame, in a fixed order. Each pipeline selects systems by the phase they depend on, and two of them are gated by the current [editor mode](../editor/editor_state).
 
 ```text
 ┌────────────────────────── safi_app_tick ───────────────────────────┐
 │                                                                    │
-│  1. Variable pipeline   (wall-clock dt)                            │
+│  1. Variable pipeline   (wall-clock dt, always)                    │
 │       EcsOnLoad → EcsPreUpdate → EcsOnUpdate                       │
 │                  → EcsOnValidate → EcsPostUpdate                   │
 │                                                                    │
 │  2. Fixed pipeline      (looped N times, dt = SafiTime.fixed_delta)│
-│       SafiFixedUpdate                                              │
+│       SafiFixedUpdate                              [if mode=PLAY]  │
 │                                                                    │
-│  3. Render pipeline     (wall-clock dt)                            │
+│  3. Game pipeline       (wall-clock dt)                            │
+│       SafiGamePhase                                [if mode=PLAY]  │
+│                                                                    │
+│  4. Render pipeline     (wall-clock dt, always)                    │
 │       EcsPreStore → EcsOnStore                                     │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-The engine does **not** use the default flecs pipeline. It builds three custom pipelines in `safi_ecs_create`, each matching a specific set of phases, and `safi_app_tick` calls `ecs_run_pipeline` on them in order.
+The engine does **not** use the default flecs pipeline. It builds four custom pipelines in `safi_ecs_create`, each matching a specific set of phases, and `safi_app_tick` calls `ecs_run_pipeline` on them in order. The fixed and game pipelines are skipped entirely when `SafiEditorState.mode != PLAY`.
 
 ## Assigning a system to a stage
 
@@ -56,7 +59,19 @@ ecs_system(world, {
 });
 ```
 
-Runs N times per frame at `SafiTime.fixed_delta` (default `1/60 s`). Use this for physics and any deterministic simulation where stable `dt` matters. `SafiFixedUpdate` is intentionally **not** chained to any default flecs phase, so it is invisible to the variable pipeline — it only runs from the fixed-step accumulator loop.
+Runs N times per frame at `SafiTime.fixed_delta` (default `1/60 s`). Use this for physics and any deterministic simulation where stable `dt` matters. `SafiFixedUpdate` is intentionally **not** chained to any default flecs phase, so it is invisible to the variable pipeline — it only runs from the fixed-step accumulator loop. Skipped when editor mode is not `PLAY`.
+
+### Gameplay (variable-rate, pausable)
+
+```c
+ecs_system(world, {
+    .entity   = ecs_entity(world, { .name = "player_controls",
+                                    .add  = ecs_ids(ecs_dependson(SafiGamePhase)) }),
+    .callback = player_controls,
+});
+```
+
+Runs once per frame at wall-clock `dt`, but **only** when `SafiEditorState.mode == PLAY`. Use this for user gameplay systems that should freeze in Edit mode (player movement, AI, scripted events). Engine-owned variable systems — input pumping, camera updates, transform propagation — stay on `EcsOnUpdate` so the Inspector and viewport remain responsive while the game is paused.
 
 ### Render
 
@@ -75,22 +90,49 @@ Runs last in the frame, after both the variable and fixed stages have settled. U
 Each frame the engine adds `dt` to an accumulator and then runs `SafiFixedUpdate` for as long as the accumulator has a full step in it, capped at `SafiApp.fixed_max_steps` per frame to prevent the spiral-of-death:
 
 ```text
-fixed_accumulator += dt;
-steps = 0;
-while (fixed_accumulator >= fixed_delta && steps < fixed_max_steps) {
-    run_pipeline(safi_fixed_pipeline, fixed_delta);
-    fixed_accumulator -= fixed_delta;
-    steps++;
+if (mode == PLAY) {
+    fixed_accumulator += dt;
+    steps = 0;
+    while (fixed_accumulator >= fixed_delta && steps < fixed_max_steps) {
+        run_pipeline(safi_fixed_pipeline, fixed_delta);
+        fixed_accumulator -= fixed_delta;
+        steps++;
+    }
+} else {
+    /* Edit / Paused: drain the accumulator so resuming Play doesn't
+     * try to catch up on minutes of paused time. */
+    fixed_accumulator = 0.0f;
 }
 ```
 
-If the cap is hit, the leftover time is discarded rather than carried into the next frame. `SafiTime.fixed_overshoot` exposes the surviving remainder for interpolation.
+If the cap is hit during Play, the leftover time is discarded rather than carried into the next frame. `SafiTime.fixed_overshoot` exposes the surviving remainder for interpolation.
+
+## Editor mode gate
+
+The fixed and game pipelines are gated on `SafiEditorState.mode`. The full tick:
+
+```c
+ecs_run_pipeline(world, safi_ecs_variable_pipeline(), dt);      /* always */
+
+const SafiEditorState *ed = ecs_singleton_get(world, SafiEditorState);
+bool game_active = (ed && ed->mode == SAFI_EDITOR_MODE_PLAY);
+
+if (game_active) {
+    /* fixed-step loop above */
+    ecs_run_pipeline(world, safi_ecs_game_pipeline(), dt);
+}
+
+ecs_run_pipeline(world, safi_ecs_render_pipeline(), dt);        /* always */
+```
+
+Toggle the mode at runtime via `safi_editor_set_mode` (see [Editor State](../editor/editor_state)). The `gltf_viewer` demo binds **F1** to Edit ↔ Play so you can watch the falling cube freeze and resume.
 
 ## Pipeline accessors
 
 ```c
 ecs_entity_t safi_ecs_variable_pipeline(void);
 ecs_entity_t safi_ecs_fixed_pipeline(void);
+ecs_entity_t safi_ecs_game_pipeline(void);
 ecs_entity_t safi_ecs_render_pipeline(void);
 ```
 
@@ -106,4 +148,5 @@ Exposed for tests and for apps that want to step individual stages manually. Nor
 
 - [`SafiApp`](./app) — owns the main loop
 - [`SafiTime`](./time) — variable and fixed clocks
+- [Editor State](../editor/editor_state) — the mode flag that gates the fixed + game pipelines
 - [ECS Overview](../ecs/overview)

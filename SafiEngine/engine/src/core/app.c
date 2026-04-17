@@ -4,6 +4,7 @@
 #include "safi/ecs/ecs.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
+#include "safi/editor/editor_state.h"
 #include "safi/input/input.h"
 #include "safi/render/assets.h"
 #include "safi/physics/physics.h"
@@ -39,6 +40,10 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     /* Install stock singletons. */
     ecs_singleton_set(app->world, SafiInput, {0});
     ecs_singleton_set(app->world, SafiTime,  {0});
+    ecs_singleton_set(app->world, SafiEditorState, {
+        .mode            = SAFI_EDITOR_MODE_EDIT,
+        .selected_entity = 0,
+    });
 
     if (desc->enable_debug_ui) {
         if (!safi_debug_ui_init(&app->renderer)) {
@@ -117,21 +122,39 @@ bool safi_app_tick(SafiApp *app) {
 
     ecs_run_pipeline(app->world, safi_ecs_variable_pipeline(), dt);
 
+    /* Editor mode controls whether gameplay advances. Edit and Paused skip
+     * both the fixed pipeline (physics, deterministic simulation) and the
+     * user-authored game pipeline; the variable + render pipelines always
+     * run so input, the Inspector, and the viewport stay responsive. */
+    const SafiEditorState *ed = ecs_singleton_get(app->world, SafiEditorState);
+    bool game_active = (ed && ed->mode == SAFI_EDITOR_MODE_PLAY);
+
     /* ---- Stage 2: fixed-rate systems (SafiFixedUpdate) ------------------ *
      * Drain the accumulator with stable steps. Capped at fixed_max_steps
      * per frame to prevent spiral-of-death on frame stalls. */
     app->fixed_accumulator += dt;
     int steps = 0;
-    while (app->fixed_accumulator >= app->fixed_dt && steps < app->fixed_max_steps) {
-        ecs_run_pipeline(app->world, safi_ecs_fixed_pipeline(), app->fixed_dt);
-        app->fixed_accumulator -= app->fixed_dt;
-        app->fixed_elapsed     += app->fixed_dt;
-        steps++;
+    if (game_active) {
+        while (app->fixed_accumulator >= app->fixed_dt && steps < app->fixed_max_steps) {
+            ecs_run_pipeline(app->world, safi_ecs_fixed_pipeline(), app->fixed_dt);
+            app->fixed_accumulator -= app->fixed_dt;
+            app->fixed_elapsed     += app->fixed_dt;
+            steps++;
+        }
+    } else {
+        /* Edit/Paused: drain the accumulator silently so the next Play frame
+         * doesn't see a pathological backlog from the time spent paused. */
+        app->fixed_accumulator = 0.0f;
     }
     /* If we hit the step cap with leftover dt, drop it — otherwise the next
      * frame will try to catch up and stall again. */
     if (steps == app->fixed_max_steps && app->fixed_accumulator >= app->fixed_dt) {
         app->fixed_accumulator = 0.0f;
+    }
+
+    /* ---- Stage 2b: variable-rate gameplay (SafiGamePhase) --------------- */
+    if (game_active) {
+        ecs_run_pipeline(app->world, safi_ecs_game_pipeline(), dt);
     }
 
     /* Re-publish SafiTime with updated fixed_* fields so the render stage

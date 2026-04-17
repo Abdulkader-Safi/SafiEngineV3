@@ -34,6 +34,8 @@
 #include "safi/scene/scene.h"
 #include "safi/ecs/component_registry.h"
 
+#include "safi/editor/editor_state.h"
+
 #include "safi/physics/physics.h"
 
 #include "safi/audio/audio.h"

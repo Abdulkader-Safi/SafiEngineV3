@@ -1,1 +1,11 @@
-["overview", "world", "components", "systems", "resources", "transform", "camera", "visibility", "physics"]
+[
+  "overview",
+  "world",
+  "components",
+  "systems",
+  "resources",
+  "transform",
+  "camera",
+  "visibility",
+  "physics"
+]

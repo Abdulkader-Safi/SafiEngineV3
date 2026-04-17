@@ -1,0 +1,90 @@
+---
+title: Editor State
+description: Singleton that controls Edit / Play / Paused mode and the selected entity.
+---
+
+# Editor State
+
+```c
+#include <safi/editor/editor_state.h>
+```
+
+`SafiEditorState` is the source of truth for whether the app is authoring (**Edit**), simulating (**Play**), or temporarily halted (**Paused**). It is the foundation that the upcoming editor toolbar builds on — M1 of the [Editor plan](/roadmap/editor).
+
+The engine installs the singleton automatically in `safi_app_init` with `mode = Edit` as the default. Systems, panels, and user code read or mutate it via the ECS singleton API or the convenience accessors below.
+
+## Struct
+
+```c
+typedef enum SafiEditorMode {
+    SAFI_EDITOR_MODE_EDIT   = 0,  /* default; gameplay paused, world editable */
+    SAFI_EDITOR_MODE_PLAY   = 1,  /* fixed-update + game pipelines run        */
+    SAFI_EDITOR_MODE_PAUSED = 2,  /* entered Play, temporarily halted         */
+} SafiEditorMode;
+
+typedef struct SafiEditorState {
+    SafiEditorMode mode;
+    ecs_entity_t   selected_entity;  /* 0 = none */
+} SafiEditorState;
+```
+
+## API
+
+```c
+SafiEditorMode safi_editor_get_mode    (const ecs_world_t *world);
+void           safi_editor_set_mode    (ecs_world_t       *world, SafiEditorMode mode);
+ecs_entity_t   safi_editor_get_selected(const ecs_world_t *world);
+void           safi_editor_set_selected(ecs_world_t       *world, ecs_entity_t e);
+```
+
+Thin wrappers over `ecs_singleton_get` / `ecs_singleton_set`. The getters return a sensible default (`MODE_EDIT`, `0`) if the singleton is missing; the setters no-op in the same case.
+
+## What the mode controls
+
+The `mode` field gates two pipelines in `safi_app_tick`:
+
+| Pipeline                              | Runs when      |
+| ------------------------------------- | -------------- |
+| Variable (`EcsOnLoad..EcsPostUpdate`) | Always         |
+| Fixed (`SafiFixedUpdate`)             | `mode == PLAY` |
+| Game (`SafiGamePhase`)                | `mode == PLAY` |
+| Render (`EcsPreStore..EcsOnStore`)    | Always         |
+
+**Edit** and **Paused** keep input pumping, the Inspector live, and the viewport rendering — only gameplay freezes. When re-entering Play, the fixed-step accumulator is drained so the simulation doesn't try to catch up on minutes of paused time. See [Scheduler](../core/scheduler) for the full pipeline breakdown and the `SafiGamePhase` usage pattern.
+
+## Typical uses
+
+**Toolbar buttons** (the future M1 UI writes the mode):
+
+```c
+if (play_button_clicked) safi_editor_set_mode(world, SAFI_EDITOR_MODE_PLAY);
+if (stop_button_clicked) safi_editor_set_mode(world, SAFI_EDITOR_MODE_EDIT);
+```
+
+**Inspector panels** (read the selection):
+
+```c
+ecs_entity_t sel = safi_editor_get_selected(world);
+if (sel && ecs_is_alive(world, sel)) {
+    /* draw component widgets for sel */
+}
+```
+
+**Opt into Play at startup** for demos that don't have a toolbar yet:
+
+```c
+safi_app_init(&app, &desc);
+/* ... scene_setup ... */
+safi_editor_set_mode(app.world, SAFI_EDITOR_MODE_PLAY);
+safi_app_run(&app);
+```
+
+## Demo keybind
+
+The `gltf_viewer` demo maps **F1** to toggle Edit ↔ Play. In Edit mode the falling cube freezes mid-air; flip back to Play and it resumes. This exercises the pipeline gate described in [Scheduler](../core/scheduler).
+
+## See also
+
+- [Scheduler](../core/scheduler) — `SafiGamePhase` and how gating works under the hood
+- [Scene Serialization](../scene/scene) — `safi_scene_snapshot_all` / `safi_scene_restore_snapshot`, the primitives M1 uses to preserve world state across Play → Stop
+- [Editor plan](/roadmap/editor) — milestone-by-milestone breakdown

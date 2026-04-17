@@ -20,14 +20,17 @@ The editor is **not a separate application**. It is a set of systems and panels 
 ## Current foundation (already shipped)
 
 - **Scene hierarchy panel** — entities listed by `SafiName`, nested by `EcsChildOf`, click-to-select. ([Debug UI](/api/ui/debug_ui))
-- **Inspector panel** — collapsible sections per component, editable number / vec3 / checkbox / dropdown widgets. Covers Transform, Camera, MeshRenderer, Spin, RigidBody, Collider, and all 5 light types.
+- **Inspector panel** — collapsible sections per component, editable number / vec3 / checkbox / dropdown widgets. Covers Transform, Camera, MeshRenderer, Spin, RigidBody, Collider, and all 5 light types. Drops stale selection (`ecs_is_alive`) across scene reloads.
 - **Engine-owned render stage** — the render pipeline is a set of ECS systems on the render phase; editor systems can insert overlays (gizmos, wireframes) without forking the renderer. ([Render Overview](/api/render/overview))
 - **Fixed timestep** — `SafiFixedUpdate` is separate from the variable update, so pausing physics is just "don't run fixed update". ([Scheduler](/api/core/scheduler))
 - **Physics integration** — Jolt bodies driven by `SafiRigidBody` + `SafiCollider`, transform sync in both directions. ([Physics](/api/ecs/physics))
+- **Scene serialization** — `safi_scene_save` / `safi_scene_load` / `safi_scene_clear` plus in-memory `safi_scene_snapshot_all` / `safi_scene_restore_snapshot` for non-destructive Play→Stop round-trips. ([Scene](/api/scene/scene))
+- **Editor-mode singleton** — `SafiEditorState { mode, selected_entity }` with `Edit / Play / Paused`. The `safi_app_tick` loop gates the fixed + game pipelines on `mode == PLAY`; variable + render always run. ([Editor State](/api/editor/editor_state))
+- **Dedicated game phase** — user gameplay opts into `SafiGamePhase` (distinct from `EcsOnUpdate`) so it freezes in Edit mode while engine-owned variable systems keep ticking. ([Scheduler](/api/core/scheduler))
 
 ## Milestones
 
-### M1 — Play / Pause / Stop (foundation)
+### M1 — Play / Pause / Stop (foundation) — **engine side shipped, UI pending**
 
 The single most important editor feature. Without it, nothing else feels like an editor.
 
@@ -38,10 +41,12 @@ The single most important editor feature. Without it, nothing else feels like an
 
 **What needs to land**
 
-1. A `SafiEditorState` singleton with `{ mode: Edit | Play | Paused }`.
-2. Gate `SafiFixedUpdate` and (new) `SafiGamePhase` on `state.mode == Play`.
-3. A snapshot helper that serializes selected entities to an in-memory buffer and restores them (reuses the scene serialization format from M2).
-4. Toolbar buttons in the debug UI.
+1. ~~A `SafiEditorState` singleton with `{ mode: Edit | Play | Paused }`.~~ ✅ ([`SafiEditorState`](/api/editor/editor_state))
+2. ~~Gate `SafiFixedUpdate` and (new) `SafiGamePhase` on `state.mode == Play`.~~ ✅ ([Scheduler](/api/core/scheduler))
+3. ~~A snapshot helper that serializes selected entities to an in-memory buffer and restores them (reuses the scene serialization format from M2).~~ ✅ (`safi_scene_snapshot_all` / `safi_scene_restore_snapshot` — ids stay stable across restore)
+4. Toolbar buttons in the debug UI. **Still to do.**
+
+The `gltf_viewer` demo exercises all three engine-side pieces: **F1** toggles Edit/Play, **F6** snapshots, **F7** restores.
 
 ### M2 — Scene serialization
 

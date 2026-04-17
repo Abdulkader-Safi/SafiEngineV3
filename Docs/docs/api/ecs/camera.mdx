@@ -41,11 +41,12 @@ ecs_set(world, cam, SafiCamera, {
 
 :::warning WIP — Camera system
 The camera is functional but not engine-owned:
+
 - **Perspective projection** is computed in the demo, not by an engine system
 - **Orthographic projection** does not exist (`glm_ortho` is not used anywhere)
 - **Multi-camera** — no camera priority, viewport rect, or render-target selection
 - **Active camera** — no engine concept of which camera drives the main pass
-:::
+  :::
 
 ## See also
 

@@ -26,7 +26,8 @@ All dependencies are pulled in by CMake `FetchContent`. You only need CMake and 
 | [Primitives](./render/primitives) | `<safi/render/…>` | Procedural plane/box/sphere/capsule with color + texture | Implemented |
 | [Lighting](./render/lighting)     | `<safi/render/…>` | Directional, point, ambient lights                       | WIP         |
 | [Assets](./render/assets)         | `<safi/render/…>` | Asset handles, caching, hot-reload stub                  | Implemented |
-| [Scene](./scene/scene)            | `<safi/scene/…>`  | JSON save/load/clear with component registry             | Implemented |
+| [Scene](./scene/scene)            | `<safi/scene/…>`  | JSON save/load/clear, in-memory snapshot/restore         | Implemented |
+| [Editor](./editor/editor_state)   | `<safi/editor/…>` | Edit / Play / Paused mode singleton, selection           | Partial     |
 | [Input](./input/input)            | `<safi/input/…>`  | Keyboard/mouse/scroll/modifiers snapshot singleton       | Implemented |
 | [UI](./ui/debug_ui)               | `<safi/ui/…>`     | MicroUI debug overlay                                    | Implemented |
 | [Physics](./ecs/physics)          | —                 | Colliders, rigid bodies, raycasts, overlap queries       | Partial     |

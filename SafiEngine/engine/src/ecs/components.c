@@ -11,6 +11,7 @@ ECS_COMPONENT_DECLARE(SafiName);
 ECS_COMPONENT_DECLARE(SafiSpin);
 ECS_COMPONENT_DECLARE(SafiTime);
 ECS_COMPONENT_DECLARE(SafiInput);
+ECS_COMPONENT_DECLARE(SafiEditorState);
 ECS_COMPONENT_DECLARE(SafiDirectionalLight);
 ECS_COMPONENT_DECLARE(SafiPointLight);
 ECS_COMPONENT_DECLARE(SafiSpotLight);
@@ -28,6 +29,7 @@ void safi_register_builtin_components(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, SafiSpin);
     ECS_COMPONENT_DEFINE(world, SafiTime);
     ECS_COMPONENT_DEFINE(world, SafiInput);
+    ECS_COMPONENT_DEFINE(world, SafiEditorState);
     ECS_COMPONENT_DEFINE(world, SafiDirectionalLight);
     ECS_COMPONENT_DEFINE(world, SafiPointLight);
     ECS_COMPONENT_DEFINE(world, SafiSpotLight);
