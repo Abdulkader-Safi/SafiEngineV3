@@ -6,6 +6,7 @@
 #include "safi/render/model.h"
 #include "safi/render/light_buffer.h"
 #include "safi/render/light_system.h"
+#include "safi/render/gizmo.h"
 #include "safi/ui/debug_ui.h"
 
 #include <cglm/cglm.h>
@@ -56,11 +57,28 @@ static void safi_render_system(ecs_iter_t *it) {
         safi_debug_ui_prepare(r);
     }
 
-    /* ---- Build view / projection ---------------------------------------- */
+    /* ---- Upload gizmo lines (another pre-pass copy) --------------------- *
+     * Must happen before begin_main_pass — copy passes can't run inside a
+     * render pass. No-op when the queue is empty. */
+    safi_gizmo_system_upload(r);
+
+    /* ---- Build view / projection ---------------------------------------- *
+     * Prefer an explicit pose (`eye`/`forward`/`up`); fall back to the legacy
+     * "eye = target + (0,0,3), look at origin" convention so scenes written
+     * before the pose fields existed still render. */
     mat4 view, proj;
-    vec3 eye = { cam->target[0], cam->target[1], cam->target[2] + 3.0f };
-    vec3 center = { 0, 0, 0 };
-    vec3 up = { 0, 1, 0 };
+    vec3 eye, center, up;
+    if (glm_vec3_norm2(cam->eye) > 0.0f) {
+        glm_vec3_copy(cam->eye, eye);
+        glm_vec3_add(cam->eye, cam->forward, center);
+        glm_vec3_copy(cam->up, up);
+    } else {
+        eye[0] = cam->target[0];
+        eye[1] = cam->target[1];
+        eye[2] = cam->target[2] + 3.0f;
+        glm_vec3_zero(center);
+        up[0] = 0.0f; up[1] = 1.0f; up[2] = 0.0f;
+    }
     glm_lookat(eye, center, up, view);
 
     float aspect = (float)r->swapchain_w / (float)r->swapchain_h;
@@ -124,6 +142,10 @@ static void safi_render_system(ecs_iter_t *it) {
         }
         ecs_query_fini(q);
     }
+
+    /* Gizmos draw after opaque geometry so they read the correct depth,
+     * but before the UI so the UI always draws on top. */
+    safi_gizmo_system_draw(r, &cam_buf);
 
     if (a->debug_ui_enabled) safi_debug_ui_render(r);
 

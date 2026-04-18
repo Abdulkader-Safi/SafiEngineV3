@@ -48,13 +48,26 @@ int main(int argc, char **argv) {
   safi_editor_set_mode(world, SAFI_EDITOR_MODE_PLAY);
 
   /* Register user systems. The engine's render system is registered
-   * automatically by safi_app_init — only game logic goes here. */
+   * automatically by safi_app_init — only game logic goes here.
+   *
+   * control_system runs on SafiGamePhase so it is skipped while the editor
+   * is in Edit or Paused mode. That way WASD/arrow input drives the model
+   * only while the game is actually playing — in Edit mode those keys
+   * belong to the editor fly-cam. scene_io_system stays on EcsOnUpdate
+   * because F5 save / F9 load need to work regardless of mode. */
   ecs_system(world,
              {
                  .entity = ecs_entity(
                      world, {.name = "control_system",
-                             .add = ecs_ids(ecs_dependson(EcsOnUpdate))}),
+                             .add = ecs_ids(ecs_dependson(SafiGamePhase))}),
                  .callback = control_system,
+             });
+  ecs_system(world,
+             {
+                 .entity = ecs_entity(
+                     world, {.name = "scene_io_system",
+                             .add = ecs_ids(ecs_dependson(EcsOnUpdate))}),
+                 .callback = scene_io_system,
              });
 
   safi_app_run(&app);

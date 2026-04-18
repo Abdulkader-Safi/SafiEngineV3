@@ -5,13 +5,7 @@
 #include <safi/ui/debug_ui.h>
 
 #include <SDL3/SDL.h>
-#include <cJSON.h>
 #include <microui.h>
-
-/* In-memory snapshot produced by F6 and consumed by F7. Owned here, freed
- * on the next F6 press or at process exit. Static because this is a
- * single-player demo scratchpad, not something the engine needs to track. */
-static cJSON *g_control_snapshot = NULL;
 
 /* Scene-load clears and recreates every named entity, so the cached
  * handles in g_demo go stale after F9. Re-look them up by name; names
@@ -24,6 +18,9 @@ static void refresh_demo_handles(ecs_world_t *world) {
   g_demo.sky_entity    = safi_scene_find_entity_by_name(world, "Sky");
 }
 
+/* Gameplay controls — runs on SafiGamePhase. Frozen in Edit/Paused by the
+ * app scheduler, which is how the editor fly-cam and the cube controls
+ * stop fighting over WASD. */
 void control_system(ecs_iter_t *it) {
   /* Skip game keyboard controls when a MicroUI widget is active (e.g. the
    * user is typing a number into a property field). */
@@ -72,7 +69,7 @@ void control_system(ecs_iter_t *it) {
     ecs_modified(it->world, g_demo.model_entity, SafiTransform);
   }
 
-  /* W / S → dolly camera */
+  /* W / S → dolly the gameplay camera. */
   SafiCamera *cam = NULL;
   if (g_demo.camera_entity && ecs_is_alive(it->world, g_demo.camera_entity)) {
     cam = ecs_get_mut(it->world, g_demo.camera_entity, SafiCamera);
@@ -85,7 +82,7 @@ void control_system(ecs_iter_t *it) {
 
     /* Update audio listener from the camera pose so 3D sounds pan/attenuate
      * relative to the viewer. Eye follows the same (target + Z=3) used by
-     * the render system. */
+     * the render system's legacy fallback. */
     float eye_pos[3] = {cam->target[0], cam->target[1], cam->target[2] + 3.0f};
     float fwd[3] = {0, 0, -1};
     float up[3] = {0, 1, 0};
@@ -96,43 +93,18 @@ void control_system(ecs_iter_t *it) {
    * Edge-detected so holding the button fires once per press. Clicks landing
    * on a MicroUI panel are ignored — otherwise the Scene/Inspector hierarchy
    * would fire a UI click sfx every time the user picks an entity. */
-  mu_Context *mu = safi_debug_ui_context();
-  bool over_panel = mu && mu->hover_root != NULL;
-
   static bool prev_lmb = false;
   bool lmb = in->mouse_buttons[1]; /* SDL_BUTTON_LEFT == 1 */
-  if (lmb && !prev_lmb && cam && !over_panel) {
+  if (lmb && !prev_lmb && cam && safi_debug_ui_mouse_over_viewport()) {
     int ww = 0, wh = 0;
     SDL_GetWindowSize(SDL_GetKeyboardFocus(), &ww, &wh);
     if (ww > 0 && wh > 0) {
-      /* Reconstruct the view/proj used by the render system (see
-       * engine/src/render/render_system.c: eye = target + (0,0,3)). */
-      vec3 eye = {cam->target[0], cam->target[1], cam->target[2] + 3.0f};
-      vec3 center = {cam->target[0], cam->target[1], cam->target[2]};
-      vec3 up = {0, 1, 0};
-      mat4 view, proj, vp, inv_vp;
-      glm_lookat(eye, center, up, view);
-      glm_perspective(cam->fov_y_radians, (float)ww / (float)wh, cam->z_near,
-                      cam->z_far, proj);
-      glm_mat4_mul(proj, view, vp);
-      glm_mat4_inv(vp, inv_vp);
-
-      /* Pixel → NDC (flip Y — SDL's origin is top-left). */
-      float nx = (2.0f * in->mouse_x / (float)ww) - 1.0f;
-      float ny = 1.0f - (2.0f * in->mouse_y / (float)wh);
-
-      /* Unproject a far-plane point, then build dir = normalize(p - eye). */
-      vec4 ndc = {nx, ny, 1.0f, 1.0f};
-      vec4 world;
-      glm_mat4_mulv(inv_vp, ndc, world);
-      vec3 far_pt = {world[0] / world[3], world[1] / world[3],
-                     world[2] / world[3]};
-      vec3 dir;
-      glm_vec3_sub(far_pt, eye, dir);
-      glm_vec3_normalize(dir);
+      vec3 origin, dir;
+      safi_camera_screen_ray(cam, ww, wh, in->mouse_x, in->mouse_y, origin,
+                             dir);
 
       SafiRayHit hit;
-      if (safi_physics_raycast(it->world, eye, dir, 100.0f, 0, &hit)) {
+      if (safi_physics_raycast(it->world, origin, dir, 100.0f, 0, &hit)) {
         const SafiName *n = ecs_get(it->world, hit.entity, SafiName);
         SAFI_LOG_INFO(
             "raycast hit: %s (entity %llu) at (%.2f, %.2f, %.2f) frac=%.2f",
@@ -152,8 +124,21 @@ void control_system(ecs_iter_t *it) {
     }
   }
   prev_lmb = lmb;
+}
 
-  /* F5 = save scene, F9 = reload scene. */
+/* Scene file IO — runs on EcsOnUpdate so F5 and F9 work in Edit mode too.
+ * F9 is demo-owned rather than engine-owned because the demo caches entity
+ * ids (g_demo.model_entity etc.) that go stale after the scene is reloaded;
+ * the refresh step below is what keeps the handle guards in control_system
+ * from dereferencing dead ids. */
+void scene_io_system(ecs_iter_t *it) {
+  if (safi_debug_ui_wants_input())
+    return;
+
+  const SafiInput *in = ecs_singleton_get(it->world, SafiInput);
+  if (!in)
+    return;
+
   if (in->keys_pressed[SDL_SCANCODE_F5]) {
     safi_scene_save(it->world, "scene.json");
   }
@@ -161,30 +146,5 @@ void control_system(ecs_iter_t *it) {
     if (safi_scene_load(it->world, "scene.json")) {
       refresh_demo_handles(it->world);
     }
-  }
-
-  /* F1 = toggle Edit/Play. Exercises the pipeline gate added in the
-   * editor prerequisites: in Edit mode fixed-update is skipped, so the
-   * falling cube freezes mid-air; flip back to Play and it resumes. */
-  if (in->keys_pressed[SDL_SCANCODE_F1]) {
-    SafiEditorMode m = safi_editor_get_mode(it->world);
-    SafiEditorMode next =
-        (m == SAFI_EDITOR_MODE_PLAY) ? SAFI_EDITOR_MODE_EDIT
-                                     : SAFI_EDITOR_MODE_PLAY;
-    safi_editor_set_mode(it->world, next);
-    SAFI_LOG_INFO("editor: mode → %s",
-                  next == SAFI_EDITOR_MODE_PLAY ? "Play" : "Edit");
-  }
-
-  /* F6 = snapshot the whole world into memory. F7 = restore that
-   * snapshot onto the live entities (ids stay stable, components reset
-   * to their snapshot values). */
-  if (in->keys_pressed[SDL_SCANCODE_F6]) {
-    if (g_control_snapshot) cJSON_Delete(g_control_snapshot);
-    g_control_snapshot = safi_scene_snapshot_all(it->world);
-    SAFI_LOG_INFO("editor: snapshot captured");
-  }
-  if (in->keys_pressed[SDL_SCANCODE_F7] && g_control_snapshot) {
-    safi_scene_restore_snapshot(it->world, g_control_snapshot);
   }
 }

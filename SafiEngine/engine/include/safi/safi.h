@@ -30,11 +30,15 @@
 #include "safi/render/light_buffer.h"
 #include "safi/render/light_system.h"
 #include "safi/render/render_system.h"
+#include "safi/render/camera.h"
+#include "safi/render/gizmo.h"
 
 #include "safi/scene/scene.h"
 #include "safi/ecs/component_registry.h"
 
 #include "safi/editor/editor_state.h"
+#include "safi/editor/editor_camera.h"
+#include "safi/editor/editor_shortcuts.h"
 
 #include "safi/physics/physics.h"
 

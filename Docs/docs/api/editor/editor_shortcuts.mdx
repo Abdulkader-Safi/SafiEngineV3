@@ -1,0 +1,45 @@
+---
+title: Editor Shortcuts
+description: Engine-owned F-key bindings that stand in for the M1 toolbar UI.
+---
+
+# Editor Shortcuts
+
+```c
+#include <safi/editor/editor_shortcuts.h>
+```
+
+A tiny system that listens for three interim editor keybinds:
+
+| Key   | Action                                                                    |
+| ----- | ------------------------------------------------------------------------- |
+| **F1** | Toggle Edit ↔ Play. Writes `SafiEditorState.mode`.                       |
+| **F6** | `safi_scene_snapshot_all(world)` — stashes a cJSON blob in a scratchpad. |
+| **F7** | `safi_scene_restore_snapshot(world, blob)` — resets components to the last snapshot. Entity ids stay stable. |
+
+The system runs on `EcsOnUpdate` so it works in both Edit and Play (flipping mode freezes gameplay — not keybinds). Input is skipped when a MicroUI widget has focus, so typing into an Inspector field never fires a shortcut.
+
+## API
+
+```c
+void safi_editor_shortcuts_install(ecs_world_t *world);
+```
+
+Installed automatically by `safi_app_init` when `enable_debug_ui` is set. Idempotent.
+
+## Why these specifically
+
+F1 / F6 / F7 are **universal editor actions** — they'd be the same across every game built on SafiEngine. Putting them in the engine means each app doesn't re-invent them and the behaviour stays consistent.
+
+Scene-file shortcuts (F5 save / F9 load) are **app-specific** because cached entity handles in user code (like the `gltf_viewer` demo's `g_demo` struct) need refreshing after a load. Those stay in user code; the engine provides `safi_scene_save` / `safi_scene_load` / `safi_scene_find_entity_by_name` for the plumbing.
+
+## Relationship to the M1 toolbar
+
+Once M1 lands the Play / Pause / Stop toolbar, F1 will remain as a keyboard alternative but the buttons will be the primary UX. F6 / F7 are developer scratchpads — they'll be superseded by the undo/redo system in M6 (which uses the same snapshot primitives but keeps a bounded ring buffer).
+
+## See also
+
+- [Editor State](./editor_state) — the singleton F1 writes to
+- [Scene Serialization](../scene/scene) — the snapshot / restore primitives F6 / F7 call
+- [Debug UI](../ui/debug_ui) — `safi_debug_ui_wants_input` gate
+- [Editor plan — M1](/roadmap/editor) — the toolbar UI these shortcuts stand in for

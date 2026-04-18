@@ -1,0 +1,94 @@
+---
+title: Gizmo Draw List
+description: Frame-lifetime line and wireframe overlay — enqueue from anywhere, drained by the render system inside the main pass.
+---
+
+# Gizmo Draw List
+
+```c
+#include <safi/render/gizmo.h>
+```
+
+The gizmo system is a tiny line-list renderer the editor uses for selection outlines, debug visuals, and (soon) translate / rotate / scale handles. Any system, from any frame phase, can call `safi_gizmo_draw_*` to enqueue a line or wireframe for the current frame; the render system drains the queue inside the main pass and clears it at the end of the frame.
+
+The pipeline is `pos + rgba` only — no lighting, no texturing, no model matrix. Blending is on (so alpha < 1 works), depth test is on, depth **write** is off (gizmos don't corrupt the depth buffer for other passes).
+
+## API
+
+```c
+bool safi_gizmo_system_init   (SafiRenderer *r);
+void safi_gizmo_system_destroy(SafiRenderer *r);
+
+void safi_gizmo_draw_line        (const float a[3], const float b[3],
+                                  const float rgba[4]);
+void safi_gizmo_draw_box_wire    (const float center[3], const float half[3],
+                                  const float rgba[4]);
+void safi_gizmo_draw_aabb        (const float min[3], const float max[3],
+                                  const float rgba[4]);
+void safi_gizmo_draw_sphere_wire (const float center[3], float radius,
+                                  int segments, const float rgba[4]);
+
+/* Internal — called by the render system. */
+void safi_gizmo_system_upload(SafiRenderer *r);
+void safi_gizmo_system_draw  (SafiRenderer *r, const SafiCameraBuffer *cam);
+```
+
+Init and destroy are called automatically by the engine alongside the debug UI (same `enable_debug_ui` gate — in a shipping build the GPU resources aren't allocated). The draw helpers are main-thread only.
+
+## Enqueue from anywhere
+
+```c
+/* Inside any system — editor tool, gameplay, debug log — call before the
+ * render system runs. Usually that means OnUpdate, PreUpdate, or PostUpdate. */
+static void draw_selection_outline(ecs_iter_t *it) {
+    ecs_entity_t sel = safi_editor_get_selected(it->world);
+    if (!sel || !ecs_is_alive(it->world, sel)) return;
+
+    const SafiGlobalTransform *gt = ecs_get(it->world, sel, SafiGlobalTransform);
+    if (!gt) return;
+
+    /* Pull world-space center + half-extents from the entity's collider or
+     * mesh bounds — placeholder values used here. */
+    float center[3] = { gt->matrix[3][0], gt->matrix[3][1], gt->matrix[3][2] };
+    float half[3]   = { 0.5f, 0.5f, 0.5f };
+    float rgba[4]   = { 1.0f, 0.6f, 0.1f, 1.0f };
+    safi_gizmo_draw_box_wire(center, half, rgba);
+}
+```
+
+## Frame lifecycle
+
+```text
+begin_frame              -> command buffer + swapchain
+debug_ui_prepare         -> MicroUI vertex upload (copy pass)
+gizmo_system_upload      -> gizmo vertex upload (copy pass)
+begin_main_pass          -> color + depth pass opens
+<mesh draws>
+gizmo_system_draw        -> bind pipeline + VBO, issue one line-list draw
+debug_ui_render          -> MicroUI on top
+end_main_pass
+end_frame                -> submit
+```
+
+Copy passes cannot run inside a render pass (SDL_gpu constraint), which is why uploads happen in a pre-pass step and draws happen later inside the pass. The queue is cleared at the end of `safi_gizmo_system_draw`, so every frame starts empty.
+
+## Overflow behaviour
+
+The queue is capped (currently ≈ 3400 verts — one 128 KB VBO). Draws beyond the cap are dropped and a single warning is logged per frame. Wireframe boxes cost 24 verts each, sphere-wires at the default 16 segments cost 96. Expected working sets (a selection outline or two, a physics debug overlay) sit comfortably inside the cap.
+
+## Depth behaviour
+
+- `depth_test = LESS_OR_EQUAL` — gizmos are occluded by opaque geometry that sits in front of them.
+- `depth_write = false` — gizmos do not push a Z value into the depth buffer, so subsequent translucent or UI passes see the mesh depth, not the gizmo depth.
+
+For "always on top" gizmos (e.g. a selection pivot that should never be hidden), draw them _after_ the renderer switches modes — a dedicated overlay system on top of this is planned for M4.
+
+## Shipping builds
+
+`safi_gizmo_system_init` is only called when `enable_debug_ui = true`. In a shipping build the GPU pipeline is never created; the `safi_gizmo_draw_*` calls still compile (they just no-op), so user code can leave debug gizmos in place without `#ifdef`s.
+
+## See also
+
+- [Render Overview](./overview) — frame lifecycle and pass rules
+- [`SafiCameraBuffer`](./lighting) — the shared camera UBO the gizmo shader reads
+- [Editor plan — M4](/roadmap/editor) — gizmo entities (translate / rotate / scale) that will sit on top of this primitive

@@ -53,4 +53,10 @@ mu_Context *safi_debug_ui_context(void);
  * that typed characters go to the UI instead of moving the camera. */
 bool safi_debug_ui_wants_input(void);
 
+/* Returns true when the cursor is over the viewport (i.e. NOT over any
+ * MicroUI panel, popup, or root window). Editor tools that act on mouse
+ * clicks in the 3D view should gate on this so that clicks landing on
+ * the Scene hierarchy or Inspector don't also fire picking / gizmo logic. */
+bool safi_debug_ui_mouse_over_viewport(void);
+
 #endif /* SAFI_UI_DEBUG_UI_H */

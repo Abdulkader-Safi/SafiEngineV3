@@ -1,11 +1,13 @@
 [
   "overview",
   "renderer",
+  "camera",
   "mesh",
   "material",
   "shader",
   "gltf_loader",
   "primitives",
   "lighting",
+  "gizmo",
   "assets"
 ]

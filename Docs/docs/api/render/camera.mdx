@@ -1,0 +1,61 @@
+---
+title: Camera Math
+description: View/projection matrix helpers and screen-to-world ray unprojection shared by render, picking, and editor tools.
+---
+
+# Camera Math
+
+```c
+#include <safi/render/camera.h>
+```
+
+Utilities that turn a [`SafiCamera`](../ecs/camera) component into the matrices and rays every renderer, picker, and editor tool needs. Kept in one place so the render system, physics picking, and the upcoming gizmo handles all agree on the same eye/forward/up convention — no subtle mismatches between "what the user sees" and "what the raycast hits".
+
+## API
+
+```c
+void safi_camera_build_view_proj(const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 mat4 out_view, mat4 out_proj);
+
+void safi_camera_screen_ray     (const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 float cursor_x, float cursor_y,
+                                 vec3 out_origin, vec3 out_dir);
+```
+
+### `safi_camera_build_view_proj`
+
+Computes the same view and projection matrices the render system uses each frame. Prefers the explicit pose (`cam->eye`, `cam->forward`, `cam->up`); when `cam->eye` is all-zero, falls back to the legacy `eye = target + (0,0,3)` / look-at-origin convention so older scene files keep rendering.
+
+### `safi_camera_screen_ray`
+
+Unprojects a cursor position (pixel coordinates, SDL origin top-left) into a world-space ray. `out_origin` is the camera eye; `out_dir` is the unit-length vector from the eye through the far-plane point under the cursor. Pair with [`safi_physics_raycast`](../ecs/physics) or any future AABB/mesh picker.
+
+```c
+int ww = 0, wh = 0;
+SDL_GetWindowSize(window, &ww, &wh);
+
+vec3 origin, dir;
+safi_camera_screen_ray(cam, ww, wh, in->mouse_x, in->mouse_y, origin, dir);
+
+SafiRayHit hit;
+if (safi_physics_raycast(world, origin, dir, 100.0f, 0, &hit)) {
+    /* selection / click handling */
+}
+```
+
+## Why this lives here
+
+Before the helper existed, the same ~30 lines of unproject math lived in the `gltf_viewer` demo's input system. Every new caller (editor gizmo drag, click-to-select, brush stamping, …) would duplicate it. The helper folds that math into one place; the demo's picking is now eight lines.
+
+## Convention
+
+The engine uses cglm defaults: right-handed, `+X` right, `+Y` up, `-Z` forward (see [Render Overview](./overview)). `safi_camera_screen_ray` flips the cursor Y internally to account for SDL's top-left origin, so callers pass raw pixel coordinates.
+
+## See also
+
+- [`SafiCamera`](../ecs/camera) — the component the helpers read
+- [Render Overview](./overview) — coordinate conventions
+- [Editor Camera](../editor/editor_camera) — uses this for click-to-fly-to-point workflows
+- [Physics](../ecs/physics) — `safi_physics_raycast`

@@ -15,6 +15,7 @@
 
 #include <cJSON.h>
 #include <microui.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -97,7 +98,10 @@ static cJSON *ser_camera(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
     cJSON_AddNumberToObject(j, "fov_y_radians", (double)c->fov_y_radians);
     cJSON_AddNumberToObject(j, "z_near",        (double)c->z_near);
     cJSON_AddNumberToObject(j, "z_far",         (double)c->z_far);
-    cJSON_AddItemToObject(j, "target", s_json_vec3(c->target));
+    cJSON_AddItemToObject(j, "target",  s_json_vec3(c->target));
+    cJSON_AddItemToObject(j, "eye",     s_json_vec3(c->eye));
+    cJSON_AddItemToObject(j, "forward", s_json_vec3(c->forward));
+    cJSON_AddItemToObject(j, "up",      s_json_vec3(c->up));
     return j;
 }
 static void deser_camera(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
@@ -106,6 +110,30 @@ static void deser_camera(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
     c.z_near = s_read_float(cJSON_GetObjectItem(j, "z_near"), 0.1f);
     c.z_far  = s_read_float(cJSON_GetObjectItem(j, "z_far"), 100.0f);
     s_read_vec3(cJSON_GetObjectItem(j, "target"), c.target);
+
+    const cJSON *jeye = cJSON_GetObjectItem(j, "eye");
+    if (jeye) {
+        s_read_vec3(jeye, c.eye);
+        s_read_vec3(cJSON_GetObjectItem(j, "forward"), c.forward);
+        s_read_vec3(cJSON_GetObjectItem(j, "up"),      c.up);
+    } else {
+        /* Legacy scene: synthesise a pose from the render system's pre-pose
+         * convention (eye sits 3 units along +Z from target, look at origin). */
+        c.eye[0] = c.target[0];
+        c.eye[1] = c.target[1];
+        c.eye[2] = c.target[2] + 3.0f;
+        float fx = -c.eye[0], fy = -c.eye[1], fz = -c.eye[2];
+        float n2 = fx*fx + fy*fy + fz*fz;
+        if (n2 > 1e-8f) {
+            float inv = 1.0f / sqrtf(n2);
+            c.forward[0] = fx * inv;
+            c.forward[1] = fy * inv;
+            c.forward[2] = fz * inv;
+        } else {
+            c.forward[0] = 0.0f; c.forward[1] = 0.0f; c.forward[2] = -1.0f;
+        }
+        c.up[0] = 0.0f; c.up[1] = 1.0f; c.up[2] = 0.0f;
+    }
     ecs_set_ptr(w, e, SafiCamera, &c);
 }
 static void insp_camera(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {

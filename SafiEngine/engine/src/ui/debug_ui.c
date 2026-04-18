@@ -694,6 +694,12 @@ bool safi_debug_ui_wants_input(void) {
     return S.initialized && (S.ctx.focus != 0);
 }
 
+bool safi_debug_ui_mouse_over_viewport(void) {
+    /* hover_root is MicroUI's "which root window is the mouse over" field —
+     * NULL means the cursor is in empty viewport space. */
+    return !S.initialized || S.ctx.hover_root == NULL;
+}
+
 ecs_entity_t safi_debug_ui_selected_entity(void) {
     return S.selected_entity;
 }

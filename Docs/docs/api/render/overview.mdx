@@ -9,31 +9,34 @@ SafiEngine's renderer is a thin wrapper around the **SDL_gpu** API introduced in
 
 ## Frame lifecycle
 
+The engine's render system (`engine/src/render/render_system.c`, runs on `EcsOnStore`) owns the whole frame. SDL_gpu forbids nested passes, so any copy-pass upload (UI vertex data, gizmo vertices) has to happen between `begin_frame` and `begin_main_pass` — hence the two-phase shape:
+
 ```text
-safi_renderer_begin_frame(r)
-  ├─ SDL_AcquireGPUCommandBuffer
-  ├─ SDL_WaitAndAcquireGPUSwapchainTexture
-  ├─ (resize depth texture if needed)
-  └─ SDL_BeginGPURenderPass  (color + depth)
+safi_renderer_begin_frame(r)       // command buffer + swapchain
+  debug_ui_begin_frame              // MicroUI widgets
+  debug_ui_prepare                  // MicroUI vertex upload (copy pass)
+  gizmo_system_upload               // gizmo vertex upload (copy pass)
 
-<user draw calls via SDL_BindGPU…, SDL_DrawGPU…>
+safi_renderer_begin_main_pass(r)   // opens color + depth pass
+  <query (SafiGlobalTransform, SafiMeshRenderer), draw each lit model>
+  gizmo_system_draw                 // line-list overlay inside main pass
+  debug_ui_render                   // MicroUI on top
+safi_renderer_end_main_pass(r)
 
-safi_debug_ui_render(r)         // ImGui on top
-safi_renderer_end_frame(r)
-  ├─ SDL_EndGPURenderPass
-  └─ SDL_SubmitGPUCommandBuffer
+safi_renderer_end_frame(r)         // submits
 ```
 
-Only one render pass per frame in the first-pass engine. Adding more passes (shadow maps, post-processing) is a future evolution.
+The active camera is discovered by a `(SafiCamera, SafiActiveCamera)` query; in Edit mode the [editor camera](../editor/editor_camera) holds the tag, in Play mode whichever entity user code attached it to. Gizmos enqueued from any frame phase (see [Gizmo Draw List](./gizmo)) are drained in the step above, then the queue clears.
+
+Only one render pass per frame today. Additional passes (shadow maps, post-processing) are a future evolution.
 
 :::warning WIP — Render architecture
-The current renderer executes a single render pass per frame. The following are planned but not yet implemented:
+The following are planned but not yet implemented:
 
 - **Render extraction** — gameplay ECS state is read directly at draw time; no extracted render-world exists
 - **Draw queue / sorting** — draw calls are issued inline, not batched or sorted
 - **Transparent pass** — no separate pass for transparent/alpha-blended geometry
 - **Pipeline cache** — each material creates and owns one pipeline directly; no reuse strategy
-- **Engine-owned render system** — rendering logic currently lives in the demo, not the engine
   :::
 
 ## Shaders: HLSL → SPIR-V + MSL
@@ -57,6 +60,8 @@ These match cglm's `glm_lookat` / `glm_perspective` defaults, so you can hand ca
 ## See also
 
 - [`SafiRenderer`](./renderer)
+- [Camera Math](./camera) — view/projection + screen-to-world ray helpers
+- [Gizmo Draw List](./gizmo) — line / wireframe overlay the editor builds on
 - [`SafiMesh`](./mesh)
 - [`SafiMaterial`](./material)
 - [`safi_shader_load`](./shader)

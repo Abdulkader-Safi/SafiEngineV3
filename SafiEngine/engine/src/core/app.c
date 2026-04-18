@@ -5,12 +5,15 @@
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
 #include "safi/editor/editor_state.h"
+#include "safi/editor/editor_camera.h"
+#include "safi/editor/editor_shortcuts.h"
 #include "safi/input/input.h"
 #include "safi/render/assets.h"
 #include "safi/physics/physics.h"
 #include "safi/audio/audio.h"
 #include "safi/render/primitive_system.h"
 #include "safi/render/render_system.h"
+#include "safi/render/gizmo.h"
 #include "safi/ui/debug_ui.h"
 
 #include <SDL3/SDL.h>
@@ -51,6 +54,13 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         } else {
             app->debug_ui_enabled = true;
         }
+
+        /* Gizmos piggyback on the debug UI toggle: in a non-debug build
+         * nothing would ever enqueue a gizmo anyway, so skip the GPU
+         * resources. Failure here is non-fatal. */
+        if (!safi_gizmo_system_init(&app->renderer)) {
+            SAFI_LOG_WARN("gizmo system init failed; continuing without gizmos");
+        }
     }
 
     /* Fixed-timestep defaults. */
@@ -75,6 +85,14 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     safi_primitive_system_init(app->world, app);
     safi_render_system_init(app->world, app);
 
+    /* Editor fly-cam + F-key shortcuts. Only useful when the debug UI is
+     * on — without it the app is a shipping build and nothing would drive
+     * the camera or listen for F1 anyway. */
+    if (app->debug_ui_enabled) {
+        safi_editor_camera_install(app->world);
+        safi_editor_shortcuts_install(app->world);
+    }
+
     app->running      = true;
     app->last_ticks_ns = SDL_GetTicksNS();
     return true;
@@ -84,7 +102,10 @@ void safi_app_shutdown(SafiApp *app) {
     if (!app) return;
     safi_audio_shutdown();
     safi_physics_shutdown();
-    if (app->debug_ui_enabled) safi_debug_ui_shutdown(&app->renderer);
+    if (app->debug_ui_enabled) {
+        safi_gizmo_system_destroy(&app->renderer);
+        safi_debug_ui_shutdown(&app->renderer);
+    }
     if (app->world)  safi_ecs_destroy(app->world);
     safi_assets_shutdown();
     safi_renderer_shutdown(&app->renderer);

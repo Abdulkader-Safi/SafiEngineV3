@@ -1,0 +1,94 @@
+---
+title: Editor Camera
+description: Edit-mode fly-cam — WASD/QE translate, right-mouse rotate, automatic active-camera arbitration on mode change.
+---
+
+# Editor Camera
+
+```c
+#include <safi/editor/editor_camera.h>
+```
+
+In Edit mode the editor needs its own view, separate from whatever camera the game uses. `SafiEditorCamera` is a dedicated ECS entity that carries `{SafiTransform, SafiCamera, SafiEditorCamera}` and runs a fly-cam controller on `EcsOnUpdate`. When the editor is in **Edit**, the fly-cam owns the `SafiActiveCamera` tag; switching to **Play** or **Paused** restores the tag to whichever entity held it before.
+
+The editor cam is installed automatically by `safi_app_init` when `enable_debug_ui` is set. It is **not** serialized — it rebuilds from defaults every launch.
+
+## Controls (Edit mode only)
+
+| Input                      | Action                                         |
+| -------------------------- | ---------------------------------------------- |
+| **Right-mouse drag**       | Rotate yaw / pitch (cursor capture while held) |
+| **W / S**                  | Translate forward / backward                   |
+| **A / D**                  | Strafe left / right                            |
+| **E / Q**                  | Lift / lower (world up)                        |
+| **Shift** (held with move) | ×4 speed boost                                 |
+| **Ctrl** (held with move)  | ÷4 slow                                        |
+
+Pitch is clamped to ±89° to avoid gimbal lock. A new right-mouse-drag is only accepted if the cursor is over the viewport — but once dragging, the cursor can sweep over any MicroUI panel without breaking the gesture (SDL relative-mouse mode captures the cursor for the duration).
+
+## Struct
+
+```c
+typedef struct SafiEditorCamera {
+    float yaw;          /* radians, rotation about world +Y */
+    float pitch;        /* radians, clamped ±89°            */
+    float move_speed;   /* units / second (base)            */
+    float look_speed;   /* radians / pixel of mouse motion  */
+    bool  dragging;     /* true while RMB is held           */
+    /* private: previous SafiActiveCamera holder, restored on mode leave */
+    ecs_entity_t _prev_active_cam;
+} SafiEditorCamera;
+```
+
+Defaults: `move_speed = 5.0`, `look_speed = 0.003`. Mutable at runtime — bump them in the Inspector once a "+ Add Component" workflow lands, or set them directly from user code.
+
+## API
+
+```c
+void         safi_editor_camera_install(ecs_world_t *world);
+ecs_entity_t safi_editor_camera_entity (const ecs_world_t *world);
+```
+
+- **`safi_editor_camera_install`** creates the editor-cam entity, registers the fly-cam system on `EcsOnUpdate`, and primes active-camera arbitration. Idempotent — calling it twice is a no-op. The engine calls it automatically in `safi_app_init` when the debug UI is enabled.
+- **`safi_editor_camera_entity`** returns the editor-cam id (0 if not installed).
+
+## Active-camera arbitration
+
+The fly-cam system checks `SafiEditorState.mode` at the top of every tick and shuffles the `SafiActiveCamera` tag accordingly:
+
+- **Entering Edit.** If the editor cam isn't already active, remember whichever entity is (stash its id in `_prev_active_cam`), remove the tag from it, and attach it to the editor cam.
+- **Leaving Edit.** Remove the tag from the editor cam and restore it on `_prev_active_cam` (if still alive). Also drops any in-flight RMB drag so SDL relative-mouse mode doesn't linger into gameplay.
+
+The result: the renderer's `(SafiCamera, SafiActiveCamera)` query always finds exactly one viewpoint — the gameplay camera during Play, the fly-cam during Edit. Users don't have to plumb anything.
+
+```text
+   ┌─────────────┐   F1          ┌─────────────┐
+   │  PLAY       │ ───────────▶  │  EDIT       │
+   │ "Camera"    │   toggle      │ EditorCamera│
+   │  has tag    │ ◀──────────── │  has tag    │
+   └─────────────┘               └─────────────┘
+```
+
+## Input guards
+
+The fly-cam cooperates with the debug UI:
+
+- **WASD/QE are skipped** when `safi_debug_ui_wants_input()` is true — i.e. the user is typing into an Inspector field. Without this, typing `w` in a property would fly the camera.
+- **New RMB drags are rejected** when `safi_debug_ui_mouse_over_viewport()` is false — clicks that land on the Scene or Inspector panel never start a camera rotation.
+
+Both helpers live in [`safi/ui/debug_ui.h`](../ui/debug_ui).
+
+## Camera pose fields
+
+`SafiCamera` now carries an explicit pose (`eye`, `forward`, `up`). The fly-cam writes to those fields each frame; the render system reads them directly. Legacy scenes that only store `target` still work — the deserializer synthesises a pose from the old `eye = target + (0,0,3)` convention. See [Camera System](../ecs/camera) for the struct.
+
+## Demo keybind
+
+The `gltf_viewer` demo maps **F1** to toggle Edit ↔ Play. In Edit, right-click-drag the viewport to fly around the scene; press F1 to return to Play and watch the gameplay camera snap back.
+
+## See also
+
+- [Editor State](./editor_state) — the mode flag the fly-cam gates on
+- [Camera System](../ecs/camera) — the `SafiCamera` pose fields the fly-cam writes
+- [Scheduler](../core/scheduler) — why the fly-cam runs on `EcsOnUpdate` and not the game phase
+- [Debug UI](../ui/debug_ui) — `safi_debug_ui_mouse_over_viewport`

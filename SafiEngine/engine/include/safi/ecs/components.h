@@ -60,13 +60,21 @@ typedef struct SafiGlobalTransform {
     mat4 matrix;
 } SafiGlobalTransform;
 
-/* ---- Camera ------------------------------------------------------------- */
+/* ---- Camera ------------------------------------------------------------- *
+ * The render system prefers an explicit pose (`eye`, `forward`, `up`). If
+ * `eye` is all-zero the renderer falls back to the legacy convention —
+ * eye = target + (0,0,3), centre = origin — so older scene files and the
+ * gltf_viewer demo keep rendering unchanged. `target` is retained as a hint
+ * field that some gameplay code still writes to. */
 typedef struct SafiCamera {
     float fov_y_radians;
     float z_near;
     float z_far;
     vec3  target;
-    mat4  view;
+    vec3  eye;         /* world-space camera position                  */
+    vec3  forward;     /* unit vector; where the camera looks          */
+    vec3  up;          /* unit vector; view-space up (usually +Y)      */
+    mat4  view;        /* cached — unused today, kept for ABI stability */
     mat4  proj;
 } SafiCamera;
 

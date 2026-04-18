@@ -1,6 +1,6 @@
 ---
 title: Camera System
-description: Camera component, perspective and orthographic projection, view computation.
+description: SafiCamera component with explicit eye/forward/up pose, picked up by the engine-owned render system.
 ---
 
 # Camera System
@@ -9,24 +9,38 @@ description: Camera component, perspective and orthographic projection, view com
 #include <safi/ecs/components.h>
 ```
 
-`SafiCamera` is an ECS component that describes a viewpoint. Attach it to an entity alongside `SafiTransform` to define where the player (or editor) looks from.
+`SafiCamera` is an ECS component that describes a viewpoint. Attach it to an entity (alongside `SafiTransform`) and tag exactly one such entity with `SafiActiveCamera` — the engine's render system picks that viewpoint up automatically.
 
-## Type
+## Struct
 
 ```c
 typedef struct SafiCamera {
     float fov_y_radians;
     float z_near;
     float z_far;
-    vec3  target;
-    mat4  view;   // recomputed per frame by the render system
+
+    vec3  target;   /* legacy look-at hint; kept for back-compat with
+                       scenes / code that write it directly            */
+    vec3  eye;      /* world-space camera position                      */
+    vec3  forward;  /* unit vector, direction the camera looks          */
+    vec3  up;       /* unit vector, view-space up (usually +Y)          */
+
+    mat4  view;     /* cached — reserved for future use                 */
     mat4  proj;
 } SafiCamera;
 ```
 
-## Current usage
+The render system builds `view` from `eye` / `forward` / `up` every frame. If `eye` is all-zero (the default for a freshly-created component), it falls back to the legacy `eye = target + (0,0,3)` convention so code that only sets `target` keeps working.
 
-The glTF viewer demo creates one camera entity and manually computes perspective projection via `glm_perspective`. The view matrix is rebuilt each frame from `SafiTransform.position` and `SafiCamera.target` using `glm_lookat`.
+## Active camera
+
+```c
+typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;  /* tag */
+```
+
+Attach `SafiActiveCamera` to exactly one entity that also has `SafiCamera`. The render system queries `(SafiCamera, SafiActiveCamera)` and uses the first match. Swapping cameras = moving the tag. The [editor camera](../editor/editor_camera) uses this tag to take over the view in Edit mode and restore the gameplay camera on Play.
+
+## Creating a camera
 
 ```c
 ecs_entity_t cam = ecs_new(world);
@@ -35,21 +49,48 @@ ecs_set(world, cam, SafiCamera, {
     .fov_y_radians = glm_rad(60.0f),
     .z_near = 0.1f,
     .z_far  = 100.0f,
-    .target = {0, 0, 0},
+    .eye      = { 0, 1.5f,  6.0f },
+    .forward  = { 0, 0,    -1.0f },
+    .up       = { 0, 1.0f,  0.0f },
+});
+ecs_add(world, cam, SafiActiveCamera);
+```
+
+Or, for a "look at a point" style:
+
+```c
+ecs_set(world, cam, SafiCamera, {
+    .fov_y_radians = glm_rad(60.0f),
+    .z_near = 0.1f,
+    .z_far  = 100.0f,
+    .target = { 0, 0, 0 },   /* triggers the legacy look-at-origin fallback */
 });
 ```
 
-:::warning WIP — Camera system
-The camera is functional but not engine-owned:
+## Helpers
 
-- **Perspective projection** is computed in the demo, not by an engine system
-- **Orthographic projection** does not exist (`glm_ortho` is not used anywhere)
-- **Multi-camera** — no camera priority, viewport rect, or render-target selection
-- **Active camera** — no engine concept of which camera drives the main pass
-  :::
+[`safi/render/camera.h`](../render/camera) exposes two helpers that any system (picking, gizmos, screen-space tools) can share:
+
+```c
+void safi_camera_build_view_proj(const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 mat4 out_view, mat4 out_proj);
+
+void safi_camera_screen_ray     (const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 float cursor_x, float cursor_y,
+                                 vec3 out_origin, vec3 out_dir);
+```
+
+These reuse exactly the pose logic the render system applies, so "what the user sees" and "what a raycast hits" can never drift out of sync.
+
+## Serialization
+
+`SafiCamera` serialises with the full pose (`target`, `eye`, `forward`, `up`). Scene files written before the pose fields existed still load — the deserializer synthesises `eye` / `forward` / `up` from the old `target`-only convention. See [Scene Serialization](../scene/scene).
 
 ## See also
 
-- [Stock components](./components)
+- [Camera Math](../render/camera) — `safi_camera_screen_ray` and friends
+- [Editor Camera](../editor/editor_camera) — Edit-mode fly-cam that writes the pose
 - [Transform](./transform)
 - [Render Overview](../render/overview)

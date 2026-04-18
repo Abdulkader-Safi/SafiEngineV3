@@ -79,9 +79,9 @@ safi_editor_set_mode(app.world, SAFI_EDITOR_MODE_PLAY);
 safi_app_run(&app);
 ```
 
-## Demo keybind
+## Keybind
 
-The `gltf_viewer` demo maps **F1** to toggle Edit ↔ Play. In Edit mode the falling cube freezes mid-air; flip back to Play and it resumes. This exercises the pipeline gate described in [Scheduler](../core/scheduler).
+Pressing **F1** toggles Edit ↔ Play; the shortcut is engine-owned (see [Editor Shortcuts](./editor_shortcuts)). In Edit mode any gameplay system registered on `SafiGamePhase` freezes, so e.g. the `gltf_viewer` demo's falling cube stops mid-air; flip back to Play and it resumes. This exercises the pipeline gate described in [Scheduler](../core/scheduler).
 
 ## See also
 

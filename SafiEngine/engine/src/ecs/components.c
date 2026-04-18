@@ -1,4 +1,5 @@
 #include "safi/ecs/components.h"
+#include "safi/editor/editor_camera.h"
 #include "component_serializers.h"
 
 ECS_COMPONENT_DECLARE(SafiTransform);
@@ -30,6 +31,7 @@ void safi_register_builtin_components(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, SafiTime);
     ECS_COMPONENT_DEFINE(world, SafiInput);
     ECS_COMPONENT_DEFINE(world, SafiEditorState);
+    ECS_COMPONENT_DEFINE(world, SafiEditorCamera);
     ECS_COMPONENT_DEFINE(world, SafiDirectionalLight);
     ECS_COMPONENT_DEFINE(world, SafiPointLight);
     ECS_COMPONENT_DEFINE(world, SafiSpotLight);

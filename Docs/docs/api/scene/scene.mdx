@@ -98,13 +98,16 @@ Linear scan over every entity carrying `SafiName`. Returns `0` when there is no 
 - **`SafiGlobalTransform`** is never serialized — it's computed each frame by the transform propagation system. The loader auto-adds it when a `SafiTransform` is deserialized.
 - **Physics private fields** (`_body_id`, `_registered`) are skipped. Jolt re-registers bodies when the components are attached.
 
-## Demo keybinds
+## Keybinds
 
-The `gltf_viewer` demo maps:
+Engine-owned (via [Editor Shortcuts](../editor/editor_shortcuts)):
 
-- **F5** — `safi_scene_save(world, "scene.json")`
 - **F6** — `safi_scene_snapshot_all(world)` (stashes a cJSON blob in memory)
 - **F7** — `safi_scene_restore_snapshot(world, blob)` (resets components to the last snapshot)
+
+Demo-owned in `gltf_viewer` (scene file IO needs app-specific handle refresh, so it stays in user code):
+
+- **F5** — `safi_scene_save(world, "scene.json")`
 - **F9** — `safi_scene_load(world, "scene.json")` (refreshes cached `g_demo` handles)
 
 Edit `scene.json` by hand (move an entity, change a color), then press F9 to see the changes.

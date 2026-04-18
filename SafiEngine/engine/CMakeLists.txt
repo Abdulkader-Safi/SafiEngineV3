@@ -71,6 +71,17 @@ safi_compile_shader(
     TARGET_VAR _lit_shader_target
 )
 add_dependencies(safi_engine ${_lit_shader_target})
+
+safi_compile_shader(
+    NAME       gizmo_line
+    SOURCE     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gizmo_line.hlsl"
+    OUTPUT_DIR "${_engine_shader_out}"
+    STAGES     vert frag
+    ENTRY_VERT gizmo_vs
+    ENTRY_FRAG gizmo_fs
+    TARGET_VAR _gizmo_shader_target
+)
+add_dependencies(safi_engine ${_gizmo_shader_target})
 target_compile_definitions(safi_engine PRIVATE
     SAFI_ENGINE_SHADER_DIR="${_engine_shader_out}"
     SAFI_ENGINE_FONT_PATH="${CMAKE_SOURCE_DIR}/engine/assets/fonts/ProggyClean.ttf"
