@@ -5,7 +5,7 @@ description: Current implementation status of every SafiEngine subsystem.
 
 # Feature Roadmap
 
-Status of every engine subsystem as of the latest audit (April 2026). Recently added: **editor-mode singleton** (`SafiEditorState`) with a dedicated `SafiGamePhase` gate so gameplay pauses in Edit mode, **in-memory scene snapshot/restore** for non-destructive Play→Stop, **JSON scene serialization** (save/load/clear with a component registry), **asset handles** (refcounted, path-cached, hot-reload stub), **procedural primitives** (plane/box/sphere/capsule), and **miniaudio audio** with 2D/3D playback.
+Status of every engine subsystem as of the latest audit (April 2026). Recently added: **Play/Pause/Stop toolbar** with auto-snapshot on Play and restore on Stop, **translate/rotate/scale gizmo** driven by the toolbar's tool picker, **editor fly-cam** that arbitrates the active-camera tag on Edit ↔ Play, **editor-mode singleton** (`SafiEditorState`) with a dedicated `SafiGamePhase` gate so gameplay pauses in Edit mode, **in-memory scene snapshot/restore** for non-destructive Play→Stop, **JSON scene serialization** (save/load/clear with a component registry), **asset handles** (refcounted, path-cached, hot-reload stub), **procedural primitives** (plane/box/sphere/capsule), and **miniaudio audio** with 2D/3D playback.
 
 | Badge           | Meaning                               |
 | --------------- | ------------------------------------- |
@@ -147,27 +147,27 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 
 The SafiEngine editor is a debug-UI–based scene authoring tool that runs in the same process as the game. See the [Editor plan](/roadmap/editor) for the full milestone breakdown.
 
-| Feature                                      | Status          | Notes                                                |
-| -------------------------------------------- | --------------- | ---------------------------------------------------- |
-| Scene hierarchy panel                        | **Implemented** | Tree view with parent/child, click-to-select         |
-| Inspector with editable components           | **Implemented** | Number, vec3, checkbox, dropdown widgets             |
-| Entity selection                             | **Implemented** | Click in scene panel or programmatically             |
-| Editor-mode singleton (`SafiEditorState`)    | **Implemented** | `Edit / Play / Paused`, selected entity              |
-| Pipeline gate (fixed + game)                 | **Implemented** | Fixed-update + `SafiGamePhase` skipped when not Play |
-| Play / Pause / Stop toolbar                  | **Partial**     | Engine-side mode wired; MicroUI toolbar pending      |
-| Snapshot / restore (Play→Stop)               | **Implemented** | `safi_scene_snapshot_all` + non-destructive restore  |
-| Scene serialization (save/load)              | **Implemented** | JSON format via cJSON + component registry           |
-| Asset browser panel                          | **WIP**         | Browse meshes, materials, textures from disk         |
-| Drag-and-drop asset assignment               | **WIP**         | Drop a mesh onto a MeshRenderer field                |
-| Viewport gizmos (translate / rotate / scale) | **WIP**         | 3D handles overlaid on selected entity               |
-| Entity creation menu                         | **WIP**         | "Create > Empty / Mesh / Light / Camera"             |
-| Component add / remove UI                    | **WIP**         | "+" button in Inspector, searchable component list   |
-| Undo / redo                                  | **WIP**         | Command stack over ECS mutations                     |
-| Multi-select                                 | **WIP**         | Batch-edit shared fields                             |
-| Prefabs / entity templates                   | **WIP**         | Reusable entity blueprints                           |
-| Scene viewport camera (editor-only)          | **WIP**         | Fly-cam separate from gameplay cameras               |
-| Debug physics wireframe                      | **WIP**         | Jolt's debug renderer overlay                        |
-| Build / package menu                         | **WIP**         | Export a standalone game binary + assets             |
+| Feature                                      | Status          | Notes                                                                               |
+| -------------------------------------------- | --------------- | ----------------------------------------------------------------------------------- |
+| Scene hierarchy panel                        | **Implemented** | Tree view with parent/child, click-to-select                                        |
+| Inspector with editable components           | **Implemented** | Number, vec3, checkbox, dropdown widgets                                            |
+| Entity selection                             | **Implemented** | Click in scene panel or programmatically                                            |
+| Editor-mode singleton (`SafiEditorState`)    | **Implemented** | `Edit / Play / Paused`, selected entity                                             |
+| Pipeline gate (fixed + game)                 | **Implemented** | Fixed-update + `SafiGamePhase` skipped when not Play                                |
+| Play / Pause / Stop toolbar                  | **Implemented** | MicroUI strip with mode + tool buttons; auto-snapshot on Play, auto-restore on Stop |
+| Snapshot / restore (Play→Stop)               | **Implemented** | `safi_scene_snapshot_all` + non-destructive restore                                 |
+| Scene serialization (save/load)              | **Implemented** | JSON format via cJSON + component registry                                          |
+| Scene viewport camera (editor-only)          | **Implemented** | `SafiEditorCamera` fly-cam; RMB-drag to look, WASD/QE to move                       |
+| Viewport gizmos (translate / rotate / scale) | **Implemented** | Three-axis handles, screen-space hit-test, drag-to-transform                        |
+| Asset browser panel                          | **WIP**         | Browse meshes, materials, textures from disk                                        |
+| Drag-and-drop asset assignment               | **WIP**         | Drop a mesh onto a MeshRenderer field                                               |
+| Entity creation menu                         | **WIP**         | "Create > Empty / Mesh / Light / Camera"                                            |
+| Component add / remove UI                    | **WIP**         | "+" button in Inspector, searchable component list                                  |
+| Undo / redo                                  | **WIP**         | Snapshot ring buffer triggered by Inspector/gizmo edits                             |
+| Multi-select                                 | **WIP**         | Batch-edit shared fields                                                            |
+| Prefabs / entity templates                   | **WIP**         | Reusable entity blueprints                                                          |
+| Debug physics wireframe                      | **WIP**         | Jolt's debug renderer overlay                                                       |
+| Build / package menu                         | **WIP**         | Export a standalone game binary + assets                                            |
 
 ## Audio
 
@@ -205,9 +205,12 @@ The SafiEngine editor is a debug-UI–based scene authoring tool that runs in th
 
 **Editor MVP** — grow the debug UI into a real scene authoring tool so games can be built without writing C bootstrap code. See the [Editor plan](/roadmap/editor) for milestone details.
 
-1. Play / Pause / Stop toolbar — engine plumbing shipped ([Editor State](/api/editor/editor_state), [Scheduler](/api/core/scheduler), [Scene snapshot](/api/scene/scene)); MicroUI toolbar still pending
+1. ~~Play / Pause / Stop toolbar~~ ✅ ([Editor Toolbar](/api/editor/editor_toolbar))
 2. ~~Scene serialization / load from file~~ ✅ ([Scene](/api/scene/scene))
-3. Asset browser panel UI (handle system already shipped — see [Assets](/api/render/assets))
-4. Viewport gizmos and editor-only fly-camera
-5. Debug physics wireframe rendering
-6. PBR material pipeline (enables richer material previews in the editor)
+3. ~~Editor fly-camera~~ ✅ ([Editor Camera](/api/editor/editor_camera))
+4. ~~Viewport gizmos (translate / rotate / scale)~~ ✅ ([Editor Gizmo](/api/editor/editor_gizmo))
+5. Asset browser panel UI (handle system already shipped — see [Assets](/api/render/assets))
+6. Entity creation menu + component add/remove UI
+7. Undo/redo over Inspector + gizmo edits
+8. Debug physics wireframe rendering
+9. PBR material pipeline (enables richer material previews in the editor)

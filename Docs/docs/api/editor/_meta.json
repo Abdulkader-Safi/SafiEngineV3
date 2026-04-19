@@ -1,1 +1,7 @@
-["editor_state", "editor_camera", "editor_shortcuts"]
+[
+  "editor_state",
+  "editor_toolbar",
+  "editor_camera",
+  "editor_gizmo",
+  "editor_shortcuts"
+]

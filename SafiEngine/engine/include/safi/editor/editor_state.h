@@ -23,8 +23,19 @@ typedef enum SafiEditorMode {
     SAFI_EDITOR_MODE_PAUSED = 2,  /* entered Play, temporarily halted         */
 } SafiEditorMode;
 
+/* Which manipulator the user is currently using in the viewport. Drives
+ * both the toolbar's highlight state and the gizmo system's per-frame
+ * draw + hit-test. Q / W / E / R cycle through these. */
+typedef enum SafiEditorTool {
+    SAFI_EDITOR_TOOL_SELECT    = 0,  /* default: click to pick entities   */
+    SAFI_EDITOR_TOOL_TRANSLATE = 1,  /* three axis arrows                 */
+    SAFI_EDITOR_TOOL_ROTATE    = 2,  /* three orthogonal rings            */
+    SAFI_EDITOR_TOOL_SCALE     = 3,  /* three axes ending in cubes        */
+} SafiEditorTool;
+
 typedef struct SafiEditorState {
     SafiEditorMode mode;
+    SafiEditorTool selected_tool;
     ecs_entity_t   selected_entity;  /* 0 = none */
 } SafiEditorState;
 
@@ -34,6 +45,8 @@ typedef struct SafiEditorState {
  * sensible default, setters no-op if the singleton hasn't been created. */
 SafiEditorMode safi_editor_get_mode(const ecs_world_t *world);
 void           safi_editor_set_mode(ecs_world_t *world, SafiEditorMode mode);
+SafiEditorTool safi_editor_get_tool(const ecs_world_t *world);
+void           safi_editor_set_tool(ecs_world_t *world, SafiEditorTool tool);
 ecs_entity_t   safi_editor_get_selected(const ecs_world_t *world);
 void           safi_editor_set_selected(ecs_world_t *world, ecs_entity_t e);
 

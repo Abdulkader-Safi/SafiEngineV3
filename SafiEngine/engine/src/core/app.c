@@ -6,6 +6,7 @@
 #include "safi/ecs/phases.h"
 #include "safi/editor/editor_state.h"
 #include "safi/editor/editor_camera.h"
+#include "safi/editor/editor_gizmo.h"
 #include "safi/editor/editor_shortcuts.h"
 #include "safi/input/input.h"
 #include "safi/render/assets.h"
@@ -45,6 +46,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     ecs_singleton_set(app->world, SafiTime,  {0});
     ecs_singleton_set(app->world, SafiEditorState, {
         .mode            = SAFI_EDITOR_MODE_EDIT,
+        .selected_tool   = SAFI_EDITOR_TOOL_SELECT,
         .selected_entity = 0,
     });
 
@@ -91,6 +93,7 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     if (app->debug_ui_enabled) {
         safi_editor_camera_install(app->world);
         safi_editor_shortcuts_install(app->world);
+        safi_editor_gizmo_install(app->world);
     }
 
     app->running      = true;

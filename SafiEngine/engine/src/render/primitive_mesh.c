@@ -71,16 +71,21 @@ bool safi_primitive_build_box(const float    half_extents[3],
     s_set(&v[k++], -hx, -hy, -hz, -1,0,0, 1,0);
     s_set(&v[k++], -hx,  hy, -hz, -1,0,0, 1,1);
     s_set(&v[k++], -hx,  hy,  hz, -1,0,0, 0,1);
-    /* +Y face */
+    /* +Y face. Vertex order is "walk clockwise when viewed from above" so
+     * the shared (0,2,1)/(0,3,2) index pattern produces an outward (+Y)
+     * normal under the right-hand rule — a +Y face viewed from outside
+     * (above) traces CW in the +X/+Z screen, which is CCW from the +Y
+     * direction. The other four side faces already satisfy the same rule
+     * with their natural vertex order, only the Y caps needed flipping. */
     s_set(&v[k++], -hx,  hy,  hz, 0,1,0, 0,0);
-    s_set(&v[k++],  hx,  hy,  hz, 0,1,0, 1,0);
-    s_set(&v[k++],  hx,  hy, -hz, 0,1,0, 1,1);
     s_set(&v[k++], -hx,  hy, -hz, 0,1,0, 0,1);
-    /* -Y face */
+    s_set(&v[k++],  hx,  hy, -hz, 0,1,0, 1,1);
+    s_set(&v[k++],  hx,  hy,  hz, 0,1,0, 1,0);
+    /* -Y face — mirror of +Y. */
     s_set(&v[k++], -hx, -hy, -hz, 0,-1,0, 0,0);
-    s_set(&v[k++],  hx, -hy, -hz, 0,-1,0, 1,0);
-    s_set(&v[k++],  hx, -hy,  hz, 0,-1,0, 1,1);
     s_set(&v[k++], -hx, -hy,  hz, 0,-1,0, 0,1);
+    s_set(&v[k++],  hx, -hy,  hz, 0,-1,0, 1,1);
+    s_set(&v[k++],  hx, -hy, -hz, 0,-1,0, 1,0);
     /* +Z face */
     s_set(&v[k++],  hx, -hy,  hz, 0,0,1, 0,0);
     s_set(&v[k++], -hx, -hy,  hz, 0,0,1, 1,0);

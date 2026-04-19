@@ -1,0 +1,60 @@
+---
+title: Editor Toolbar
+description: Top-of-viewport Play / Pause / Stop + Select / Translate / Rotate / Scale buttons that drive SafiEditorState.
+---
+
+# Editor Toolbar
+
+```c
+#include <safi/editor/editor_toolbar.h>
+```
+
+A thin chromeless MicroUI strip at the top of the viewport that acts as the visual control surface for [`SafiEditorState`](./editor_state). Mode buttons on the left flip the engine between **Play / Pause / Stop** (Stop ≡ Edit mode); tool buttons on the right pick the manipulator the [gizmo system](./editor_gizmo) draws for the currently selected entity.
+
+The toolbar is drawn from inside `safi_debug_ui_draw_panels` when `enable_debug_ui` is set. Apps that roll their own top-of-frame chrome can skip the built-in call and use `safi_editor_toolbar_draw` directly.
+
+## Layout
+
+| Group            | Buttons                             | Active highlight                                 |
+| ---------------- | ----------------------------------- | ------------------------------------------------ |
+| **Mode** (left)  | Play · Pause · Stop                 | The one matching `SafiEditorState.mode`          |
+| **Tool** (right) | Select · Translate · Rotate · Scale | The one matching `SafiEditorState.selected_tool` |
+
+The active button is darkened in-place — MicroUI has no toggle-button primitive, so the toolbar temporarily swaps `MU_COLOR_BUTTON` for the active entry.
+
+## API
+
+```c
+void safi_editor_toolbar_draw(mu_Context *ctx, ecs_world_t *world,
+                              int viewport_w);
+```
+
+Call between `safi_debug_ui_begin_frame` and `safi_debug_ui_prepare`. `viewport_w` is the logical (DPI-divided) width — the strip fills it edge-to-edge and is 36 px tall.
+
+## Mode transitions
+
+The toolbar is the sole writer for the Play → Stop snapshot automation:
+
+- **Play clicked while Edit**: captures a world snapshot (`safi_scene_snapshot_all`) into a toolbar-owned cJSON blob, then sets mode to Play. The snapshot is _distinct_ from the F6/F7 manual scratchpad in [Editor Shortcuts](./editor_shortcuts) — pressing F6 does not clobber the Play-start snapshot.
+- **Play clicked while Paused**: sets mode to Play without re-snapshotting.
+- **Pause clicked while Play**: sets mode to Paused.
+- **Stop clicked (any mode)**: restores the Play-start snapshot if present, frees it, and sets mode to Edit. The snapshot restore is non-destructive — entity IDs stay stable across the round trip.
+
+F1 still flips Edit ↔ Play and bypasses the snapshot logic entirely; it's kept as a raw keyboard alternative.
+
+## Tool transitions
+
+The tool buttons write `SafiEditorState.selected_tool` directly — no side effects. The [gizmo system](./editor_gizmo) reads the value each frame to decide what geometry to draw. Changing tools mid-drag doesn't hijack the drag: the gizmo finishes the in-flight manipulation on the tool it _started_ with.
+
+Keyboard shortcuts are Q / W / E / R for Select / Translate / Rotate / Scale, implemented by [Editor Shortcuts](./editor_shortcuts) and skipped while the right mouse button is held (RMB belongs to the fly-cam).
+
+## Install
+
+Installed automatically by `safi_app_init` when `enable_debug_ui` is set. No separate install call is needed beyond the render system's `safi_debug_ui_draw_panels` invocation, which the engine handles.
+
+## See also
+
+- [Editor State](./editor_state) — the singleton the toolbar writes
+- [Editor Shortcuts](./editor_shortcuts) — F-keys + Q/W/E/R that mirror the buttons
+- [Editor Gizmo](./editor_gizmo) — what the tool buttons ultimately drive
+- [Scene Serialization](../scene/scene) — the snapshot / restore primitives Play ↔ Stop uses

@@ -39,6 +39,8 @@
 #include "safi/editor/editor_state.h"
 #include "safi/editor/editor_camera.h"
 #include "safi/editor/editor_shortcuts.h"
+#include "safi/editor/editor_toolbar.h"
+#include "safi/editor/editor_gizmo.h"
 
 #include "safi/physics/physics.h"
 

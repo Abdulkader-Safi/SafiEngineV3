@@ -96,16 +96,22 @@ bool safi_debug_ui_wants_input(void);                    // true when a widget i
 ### Scene & Inspector
 
 ```c
-void         safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world);
-ecs_entity_t safi_debug_ui_selected_entity(void);
-void         safi_debug_ui_select_entity(ecs_entity_t e);
+void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world);
+
+/* Selection lives on SafiEditorState — use these from anywhere: */
+ecs_entity_t safi_editor_get_selected(const ecs_world_t *world);
+void         safi_editor_set_selected(ecs_world_t *world, ecs_entity_t e);
 ```
 
-| Function                        | Description                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------- |
-| `safi_debug_ui_draw_panels`     | Draws the Scene hierarchy and Inspector windows. Call between `begin_frame` and `prepare`.  |
-| `safi_debug_ui_selected_entity` | Returns the entity currently shown in the Inspector.                                        |
-| `safi_debug_ui_select_entity`   | Sets the entity shown in the Inspector. Typically called once at startup to pick a default. |
+| Function                    | Description                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `safi_debug_ui_draw_panels` | Draws the Scene hierarchy and Inspector windows. Call between `begin_frame` and `prepare`.  |
+| `safi_editor_get_selected`  | Returns the entity currently shown in the Inspector.                                        |
+| `safi_editor_set_selected`  | Sets the entity shown in the Inspector. Typically called once at startup to pick a default. |
+
+:::info Selection source of truth
+The selected entity is stored on `SafiEditorState.selected_entity`, not inside the debug UI. The Scene panel writes it on click; the Inspector, the [toolbar](../editor/editor_toolbar) highlight, and the [gizmo system](../editor/editor_gizmo) all read from the same singleton. Use `safi_editor_get_selected(world)` / `safi_editor_set_selected(world, e)` from any system; see [Editor State](../editor/editor_state).
+:::
 
 ## Example
 
@@ -167,4 +173,6 @@ Trade-off: MicroUI has a smaller widget catalogue than Nuklear or Dear ImGui. Fo
 
 - [`SafiRenderer`](../render/renderer) — frame lifecycle (`begin_frame` → `begin_main_pass` → `end_main_pass` → `end_frame`)
 - [`SafiName`](../ecs/components) — entities need a `SafiName` component to appear in the Scene panel
+- [Editor State](../editor/editor_state) — where the selected entity is actually stored
+- [Editor Toolbar](../editor/editor_toolbar) — Play/Pause/Stop + tool buttons drawn at the top of the viewport
 - [MicroUI project](https://github.com/rxi/microui) — upstream source and documentation

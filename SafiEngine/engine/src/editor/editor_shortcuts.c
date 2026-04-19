@@ -6,6 +6,7 @@
 #include "safi/ui/debug_ui.h"
 #include "safi/core/log.h"
 
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_scancode.h>
 #include <cJSON.h>
 
@@ -38,6 +39,22 @@ static void editor_shortcuts_system(ecs_iter_t *it) {
 
     if (in->keys_pressed[SDL_SCANCODE_F7] && g_snapshot_scratch) {
         safi_scene_restore_snapshot(it->world, g_snapshot_scratch);
+    }
+
+    /* Q / W / E / R — tool switch. Gated to Edit mode because in Play W / S
+     * may drive user gameplay. Also skipped while the right mouse button is
+     * held: RMB+WASD is the fly-cam's flight gesture, so those keys belong
+     * to the camera and must not also flip the tool picker. */
+    bool rmb = in->mouse_buttons[SDL_BUTTON_RIGHT];
+    if (!rmb && safi_editor_get_mode(it->world) == SAFI_EDITOR_MODE_EDIT) {
+        if (in->keys_pressed[SDL_SCANCODE_Q])
+            safi_editor_set_tool(it->world, SAFI_EDITOR_TOOL_SELECT);
+        if (in->keys_pressed[SDL_SCANCODE_W])
+            safi_editor_set_tool(it->world, SAFI_EDITOR_TOOL_TRANSLATE);
+        if (in->keys_pressed[SDL_SCANCODE_E])
+            safi_editor_set_tool(it->world, SAFI_EDITOR_TOOL_ROTATE);
+        if (in->keys_pressed[SDL_SCANCODE_R])
+            safi_editor_set_tool(it->world, SAFI_EDITOR_TOOL_SCALE);
     }
 }
 

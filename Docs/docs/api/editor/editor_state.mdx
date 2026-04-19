@@ -22,8 +22,16 @@ typedef enum SafiEditorMode {
     SAFI_EDITOR_MODE_PAUSED = 2,  /* entered Play, temporarily halted         */
 } SafiEditorMode;
 
+typedef enum SafiEditorTool {
+    SAFI_EDITOR_TOOL_SELECT    = 0,  /* default: click to pick entities */
+    SAFI_EDITOR_TOOL_TRANSLATE = 1,  /* three axis arrows               */
+    SAFI_EDITOR_TOOL_ROTATE    = 2,  /* three orthogonal rings          */
+    SAFI_EDITOR_TOOL_SCALE     = 3,  /* three axes ending in cubes      */
+} SafiEditorTool;
+
 typedef struct SafiEditorState {
     SafiEditorMode mode;
+    SafiEditorTool selected_tool;
     ecs_entity_t   selected_entity;  /* 0 = none */
 } SafiEditorState;
 ```
@@ -33,11 +41,15 @@ typedef struct SafiEditorState {
 ```c
 SafiEditorMode safi_editor_get_mode    (const ecs_world_t *world);
 void           safi_editor_set_mode    (ecs_world_t       *world, SafiEditorMode mode);
+SafiEditorTool safi_editor_get_tool    (const ecs_world_t *world);
+void           safi_editor_set_tool    (ecs_world_t       *world, SafiEditorTool tool);
 ecs_entity_t   safi_editor_get_selected(const ecs_world_t *world);
 void           safi_editor_set_selected(ecs_world_t       *world, ecs_entity_t e);
 ```
 
-Thin wrappers over `ecs_singleton_get` / `ecs_singleton_set`. The getters return a sensible default (`MODE_EDIT`, `0`) if the singleton is missing; the setters no-op in the same case.
+Thin wrappers over `ecs_singleton_get` / `ecs_singleton_set`. The getters return a sensible default (`MODE_EDIT`, `TOOL_SELECT`, `0`) if the singleton is missing; the setters no-op in the same case.
+
+`selected_entity` is the single source of truth — the [debug UI](../ui/debug_ui) Scene panel writes it on click and the Inspector, [toolbar](./editor_toolbar), and [gizmo system](./editor_gizmo) all read it from here.
 
 ## What the mode controls
 
@@ -85,6 +97,8 @@ Pressing **F1** toggles Edit ↔ Play; the shortcut is engine-owned (see [Editor
 
 ## See also
 
+- [Editor Toolbar](./editor_toolbar) — the Play / Pause / Stop + tool-picker buttons that write this singleton
+- [Editor Gizmo](./editor_gizmo) — reads `selected_tool` + `selected_entity` to drive the manipulator
 - [Scheduler](../core/scheduler) — `SafiGamePhase` and how gating works under the hood
-- [Scene Serialization](../scene/scene) — `safi_scene_snapshot_all` / `safi_scene_restore_snapshot`, the primitives M1 uses to preserve world state across Play → Stop
+- [Scene Serialization](../scene/scene) — `safi_scene_snapshot_all` / `safi_scene_restore_snapshot`, the primitives Play → Stop uses
 - [Editor plan](/roadmap/editor) — milestone-by-milestone breakdown

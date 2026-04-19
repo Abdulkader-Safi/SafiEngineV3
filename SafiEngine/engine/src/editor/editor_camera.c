@@ -151,10 +151,12 @@ static void editor_camera_system(ecs_iter_t *it) {
     glm_vec3_cross(forward, world_up, right);
     glm_vec3_normalize(right);
 
-    /* WASD/QE translate only when the keyboard isn't captured by a widget
-     * (text field etc.). Without this guard, typing into the Inspector
-     * would fly the camera. */
-    if (!safi_debug_ui_wants_input()) {
+    /* WASD/QE translate only while the fly-cam is actively dragging (RMB
+     * held) — matches Unreal's scene-view UX and leaves WASD free for
+     * tool shortcuts (W = Translate, etc.) when the user isn't flying.
+     * Also skip when a MicroUI widget holds focus so typing into the
+     * Inspector can't steer the camera. */
+    if (ec->dragging && !safi_debug_ui_wants_input()) {
         float speed = ec->move_speed;
         if (in->modifiers & SDL_KMOD_SHIFT) speed *= 4.0f;
         if (in->modifiers & SDL_KMOD_CTRL)  speed *= 0.25f;

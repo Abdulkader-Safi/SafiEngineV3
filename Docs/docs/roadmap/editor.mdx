@@ -25,32 +25,34 @@ The editor is **not a separate application**. It is a set of systems and panels 
 - **Fixed timestep** — `SafiFixedUpdate` is separate from the variable update, so pausing physics is just "don't run fixed update". ([Scheduler](/api/core/scheduler))
 - **Physics integration** — Jolt bodies driven by `SafiRigidBody` + `SafiCollider`, transform sync in both directions. ([Physics](/api/ecs/physics))
 - **Scene serialization** — `safi_scene_save` / `safi_scene_load` / `safi_scene_clear` plus in-memory `safi_scene_snapshot_all` / `safi_scene_restore_snapshot` for non-destructive Play→Stop round-trips. ([Scene](/api/scene/scene))
-- **Editor-mode singleton** — `SafiEditorState { mode, selected_entity }` with `Edit / Play / Paused`. The `safi_app_tick` loop gates the fixed + game pipelines on `mode == PLAY`; variable + render always run. ([Editor State](/api/editor/editor_state))
+- **Editor-mode singleton** — `SafiEditorState { mode, selected_tool, selected_entity }` with `Edit / Play / Paused`. The `safi_app_tick` loop gates the fixed + game pipelines on `mode == PLAY`; variable + render always run. ([Editor State](/api/editor/editor_state))
 - **Dedicated game phase** — user gameplay opts into `SafiGamePhase` (distinct from `EcsOnUpdate`) so it freezes in Edit mode while engine-owned variable systems keep ticking. ([Scheduler](/api/core/scheduler))
 - **Editor fly-cam** — `SafiEditorCamera` entity with WASD/QE translate + right-mouse rotate. Installed automatically with the debug UI; arbitrates the `SafiActiveCamera` tag with the gameplay camera on every Edit ↔ Play switch. ([Editor Camera](/api/editor/editor_camera))
 - **Gizmo draw list** — `safi_gizmo_draw_line / _box_wire / _aabb / _sphere_wire`, drained once per frame inside the main render pass. The substrate M4 gizmo handles sit on. ([Gizmo Draw List](/api/render/gizmo))
 - **Camera pose + screen-ray** — `SafiCamera` carries explicit eye/forward/up; `safi_camera_screen_ray` unprojects a mouse click into a world-space ray so picking and gizmo drag share one convention. ([Camera Math](/api/render/camera))
-- **Editor keybinds** — F1 toggles Edit ↔ Play, F6 snapshots the world, F7 restores the snapshot. Engine-owned stand-ins for the M1 toolbar; skipped while a MicroUI field has focus. ([Editor Shortcuts](/api/editor/editor_shortcuts))
+- **Editor keybinds** — F1 toggles Edit ↔ Play, F6 snapshots the world, F7 restores the snapshot, Q/W/E/R picks the tool. Skipped while a MicroUI field has focus or RMB is held. ([Editor Shortcuts](/api/editor/editor_shortcuts))
+- **Editor toolbar** — chromeless MicroUI strip at the top with Play/Pause/Stop + Select/Translate/Rotate/Scale buttons. Auto-snapshots on Play, auto-restores on Stop. ([Editor Toolbar](/api/editor/editor_toolbar))
+- **Translate / Rotate / Scale gizmos** — three-axis handles driven by the Toolbar/Q-W-E-R tool picker; hit-test in screen space, drag mutates `SafiTransform` directly. ([Editor Gizmo](/api/editor/editor_gizmo))
 
 ## Milestones
 
-### M1 — Play / Pause / Stop (foundation) — **engine side shipped, UI pending**
+### M1 — Play / Pause / Stop (foundation) — ✅ **shipped**
 
 The single most important editor feature. Without it, nothing else feels like an editor.
 
-- **Toolbar panel** with three buttons: `▶` Play, `⏸` Pause, `⏹` Stop.
-- **Edit mode (default)**: fixed update is skipped; gameplay systems (user systems registered via a new `SafiGamePhase` tag) are skipped; render + transform propagation still run so the scene is visible; physics bodies are paused but their components stay editable in the Inspector.
-- **Play mode**: before entering, snapshot every entity that carries at least one user-mutable component (Transform, RigidBody velocity, etc.) into a side buffer. Enable fixed update and game systems.
-- **Stop**: disable fixed update, restore entities from the snapshot. Pause just toggles the schedule without snapshotting.
+- **Toolbar panel** with three buttons: `Play`, `Pause`, `Stop` — plus the M4 tool picker (`Select` / `Translate` / `Rotate` / `Scale`) on the right. The active button darkens to indicate current state.
+- **Edit mode (default)**: fixed update is skipped; user gameplay on `SafiGamePhase` is skipped; render + transform propagation still run so the scene stays visible; physics bodies are paused but their components stay editable in the Inspector.
+- **Play mode**: the toolbar auto-snapshots every named entity (`safi_scene_snapshot_all`) before switching, then enables the fixed and game pipelines.
+- **Stop**: restores the auto-snapshot (non-destructive — entity ids stay stable), frees it, flips back to Edit. **Pause** just toggles the schedule without snapshotting.
 
-**What needs to land**
+**What landed**
 
-1. ~~A `SafiEditorState` singleton with `{ mode: Edit | Play | Paused }`.~~ ✅ ([`SafiEditorState`](/api/editor/editor_state))
-2. ~~Gate `SafiFixedUpdate` and (new) `SafiGamePhase` on `state.mode == Play`.~~ ✅ ([Scheduler](/api/core/scheduler))
-3. ~~A snapshot helper that serializes selected entities to an in-memory buffer and restores them (reuses the scene serialization format from M2).~~ ✅ (`safi_scene_snapshot_all` / `safi_scene_restore_snapshot` — ids stay stable across restore)
-4. Toolbar buttons in the debug UI. **Still to do.**
+1. ~~A `SafiEditorState` singleton with `{ mode, selected_tool, selected_entity }`.~~ ✅ ([`SafiEditorState`](/api/editor/editor_state))
+2. ~~Gate `SafiFixedUpdate` and `SafiGamePhase` on `state.mode == Play`.~~ ✅ ([Scheduler](/api/core/scheduler))
+3. ~~Snapshot / restore primitives.~~ ✅ (`safi_scene_snapshot_all` / `safi_scene_restore_snapshot`)
+4. ~~Toolbar buttons in the debug UI, auto-snapshot on Play, auto-restore on Stop.~~ ✅ ([Editor Toolbar](/api/editor/editor_toolbar))
 
-The `gltf_viewer` demo exercises all three engine-side pieces: **F1** toggles Edit/Play, **F6** snapshots, **F7** restores.
+Keyboard alternatives stay available: **F1** toggles Edit/Play, **F6** / **F7** are a developer scratchpad snapshot/restore distinct from the toolbar's automatic capture.
 
 ### M2 — Scene serialization
 
@@ -72,16 +74,23 @@ Scenes must reference assets by a stable id, not by a live pointer.
 - **Asset browser panel** — grid or tree view of the `assets/` directory. Double-click to preview (mesh in a mini viewport; texture as a swatch). Drag a row onto an Inspector field to assign.
 - **Hot-reload** hook: watch `assets/` with SDL's filesystem notifications; on change, re-upload the GPU resource and patch every handle. Out of scope for MVP; stub the API.
 
-### M4 — Viewport gizmos & editor camera
+### M4 — Viewport gizmos & editor camera — ✅ **shipped**
 
 Direct manipulation in the 3D viewport — the part that makes the editor feel like an editor rather than a form filler.
 
-- **Editor camera** — a fly-cam with WASD + right-mouse-look, owned by a dedicated `SafiEditorCamera` entity. Becomes the active camera when in Edit mode; Play mode switches to whatever entity has `SafiActiveCamera`.
-- **Translate gizmo** — three axis-aligned arrows at the selected entity's world position. Drag an arrow → raycast from mouse onto the axis line, update `Transform.position`.
-- **Rotate gizmo** — three orthogonal rings; drag tangentially to spin the quaternion.
-- **Scale gizmo** — three axis handles ending in cubes; drag along axis.
-- **Mode switch**: `Q / W / E / R` for select / translate / rotate / scale, matching Unity/Unreal muscle memory.
-- **Rendering** — gizmos are drawn by a dedicated editor render system that runs after opaque geometry and reads/writes depth selectively (so handles aren't occluded).
+- ~~**Editor camera** — a fly-cam with WASD + right-mouse-look, owned by a dedicated `SafiEditorCamera` entity. Arbitrates the `SafiActiveCamera` tag on Edit ↔ Play switches.~~ ✅ ([Editor Camera](/api/editor/editor_camera))
+- ~~**Translate gizmo** — three axis-aligned arrows at the selected entity's world position. Drag solves closest-point-on-line-to-line and writes `SafiTransform.position` through the pre-inverted parent-world matrix (parented entities translate in their local frame).~~ ✅
+- ~~**Rotate gizmo** — three orthogonal rings. Drag intersects the cursor ray with the ring plane and computes a signed `atan2` delta angle around the axis.~~ ✅
+- ~~**Scale gizmo** — three axis handles ending in cubes. Drag maps axis-distance to a multiplicative factor clamped to 0.01.~~ ✅
+- ~~**Mode switch**: `Q / W / E / R` for select / translate / rotate / scale, matching Unity/Unreal muscle memory.~~ ✅ ([Editor Shortcuts](/api/editor/editor_shortcuts), RMB-guarded so they don't fire while flying)
+- ~~**Rendering** — gizmos go through the shared line-list [draw list](/api/render/gizmo), drained by the render system inside the main pass with depth test on / write off.~~ ✅ ([Editor Gizmo](/api/editor/editor_gizmo))
+
+**Still to polish (carried into M4.1 / M6):**
+
+- Undo snapshots on drag-start / drag-end — will fold into the M6 undo ring buffer.
+- Multi-select manipulation — M7.
+- Exact ray/line intersection picking (the current screen-space hit-test is Unity-style and "good enough"); world-vs-local toggle.
+- Snap-to-grid / angle snap.
 
 ### M5 — Entity creation & component add/remove
 

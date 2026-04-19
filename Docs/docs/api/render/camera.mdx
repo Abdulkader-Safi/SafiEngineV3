@@ -22,6 +22,11 @@ void safi_camera_screen_ray     (const SafiCamera *cam,
                                  int screen_w, int screen_h,
                                  float cursor_x, float cursor_y,
                                  vec3 out_origin, vec3 out_dir);
+
+bool safi_camera_world_to_screen(const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 const float world[3],
+                                 float *out_x, float *out_y);
 ```
 
 ### `safi_camera_build_view_proj`
@@ -31,6 +36,10 @@ Computes the same view and projection matrices the render system uses each frame
 ### `safi_camera_screen_ray`
 
 Unprojects a cursor position (pixel coordinates, SDL origin top-left) into a world-space ray. `out_origin` is the camera eye; `out_dir` is the unit-length vector from the eye through the far-plane point under the cursor. Pair with [`safi_physics_raycast`](../ecs/physics) or any future AABB/mesh picker.
+
+### `safi_camera_world_to_screen`
+
+The inverse direction: project a world-space point to pixel coordinates (SDL origin: top-left). Returns `false` when the point sits behind the camera or on the clip boundary; the gizmo hit-test uses it to find the on-screen distance from the cursor to each axis handle.
 
 ```c
 int ww = 0, wh = 0;

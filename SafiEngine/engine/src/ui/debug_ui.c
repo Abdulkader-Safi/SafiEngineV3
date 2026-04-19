@@ -26,6 +26,8 @@
 #include "safi/ui/debug_ui.h"
 #include "safi/core/log.h"
 #include "safi/ecs/components.h"
+#include "safi/editor/editor_state.h"
+#include "safi/editor/editor_toolbar.h"
 #include "safi/render/assets.h"
 #include "safi/physics/physics.h"
 #include "safi/render/shader.h"
@@ -112,7 +114,9 @@ static struct {
     mu_Id    last_click_id;      /* widget ID of last click */
     uint64_t last_click_time;    /* SDL ticks of last click */
 
-    ecs_entity_t selected_entity;
+    /* Inspector/Scene panel selection now lives on SafiEditorState so the
+     * gizmo system and any other editor tool can read the same value —
+     * see `safi_editor_{get,set}_selected` in editor/editor_state.c. */
 
     /* Dropdown state — at most one dropdown is open at any time. The
      * enum widget records an open-request here; the popup is rendered by
@@ -700,14 +704,6 @@ bool safi_debug_ui_mouse_over_viewport(void) {
     return !S.initialized || S.ctx.hover_root == NULL;
 }
 
-ecs_entity_t safi_debug_ui_selected_entity(void) {
-    return S.selected_entity;
-}
-
-void safi_debug_ui_select_entity(ecs_entity_t e) {
-    S.selected_entity = e;
-}
-
 /* -- built-in panels ------------------------------------------------------- */
 
 /* Single number cell: drag to change, double-click for text input.
@@ -951,14 +947,14 @@ static void draw_scene_entity(mu_Context *ctx, ecs_world_t *world,
     }
 
     /* Entity name button with selection highlight. */
-    bool is_sel = (e == S.selected_entity);
+    bool is_sel = (e == safi_editor_get_selected(world));
     if (is_sel) {
         ctx->style->colors[MU_COLOR_BUTTON]      = mu_color(60, 60, 140, 255);
         ctx->style->colors[MU_COLOR_BUTTONHOVER] = mu_color(70, 70, 160, 255);
         ctx->style->colors[MU_COLOR_BUTTONFOCUS] = mu_color(80, 80, 180, 255);
     }
     if (mu_button(ctx, name->value)) {
-        S.selected_entity = e;
+        safi_editor_set_selected(world, e);
     }
     if (is_sel) {
         ctx->style->colors[MU_COLOR_BUTTON]      = mu_color(75, 75, 75, 255);
@@ -980,8 +976,14 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     mu_Context *ctx = &S.ctx;
     char buf[128];
 
+    /* Toolbar at the top — MicroUI logical pixels, so divide the swapchain
+     * by dpi_scale. The toolbar strip is 36 px tall; panels below start at
+     * y=52 to leave a small gap. */
+    int logical_w = (int)((float)r->swapchain_w / S.dpi_scale);
+    safi_editor_toolbar_draw(ctx, world, logical_w);
+
     /* ---- Scene Hierarchy (left side) --------------------------------- */
-    if (mu_begin_window(ctx, "Scene", mu_rect(20, 20, 200, 400))) {
+    if (mu_begin_window(ctx, "Scene", mu_rect(20, 52, 200, 400))) {
         /* Walk the SafiName query, but only draw ROOT entities here —
          * children are picked up via draw_scene_entity's recursion so
          * they appear indented under their parent. */
@@ -1007,16 +1009,18 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     if (insp_x < 240.0f) insp_x = 240.0f;
 
     if (mu_begin_window(ctx, "Inspector",
-                        mu_rect((int)insp_x, 20, 300, 520))) {
+                        mu_rect((int)insp_x, 52, 300, 520))) {
 
         /* Drop a stale selection (e.g. after scene_load or scene_clear has
          * deleted-and-recreated entities). Otherwise ecs_get asserts on
          * the dead id. */
-        if (S.selected_entity && !ecs_is_alive(world, S.selected_entity)) {
-            S.selected_entity = 0;
+        ecs_entity_t sel = safi_editor_get_selected(world);
+        if (sel && !ecs_is_alive(world, sel)) {
+            safi_editor_set_selected(world, 0);
+            sel = 0;
         }
 
-        if (!S.selected_entity) {
+        if (!sel) {
             mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
             mu_label(ctx, "No entity selected");
             mu_end_window(ctx);
@@ -1024,15 +1028,15 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* Entity name header */
-        const SafiName *name = ecs_get(world, S.selected_entity, SafiName);
+        const SafiName *name = ecs_get(world, sel, SafiName);
         if (name) {
             mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
             mu_label(ctx, name->value);
         }
 
         /* ---- SafiTransform ------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiTransform)) {
-            SafiTransform *xf = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiTransform)) {
+            SafiTransform *xf = ecs_get_mut(world, sel,
                                             SafiTransform);
             if (mu_header_ex(ctx, "Transform", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Position", xf->position, 0.1f);
@@ -1060,8 +1064,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiCamera ---------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiCamera)) {
-            SafiCamera *cam = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiCamera)) {
+            SafiCamera *cam = ecs_get_mut(world, sel,
                                           SafiCamera);
             if (mu_header_ex(ctx, "Camera", MU_OPT_EXPANDED)) {
                 float fov_deg = glm_deg(cam->fov_y_radians);
@@ -1076,8 +1080,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiMeshRenderer ---------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiMeshRenderer)) {
-            SafiMeshRenderer *mr = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiMeshRenderer)) {
+            SafiMeshRenderer *mr = ecs_get_mut(world, sel,
                                                SafiMeshRenderer);
             if (mu_header_ex(ctx, "MeshRenderer", MU_OPT_EXPANDED)) {
                 mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
@@ -1090,8 +1094,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiPrimitive ------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiPrimitive)) {
-            SafiPrimitive *pr = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiPrimitive)) {
+            SafiPrimitive *pr = ecs_get_mut(world, sel,
                                              SafiPrimitive);
             if (mu_header_ex(ctx, "Primitive", MU_OPT_EXPANDED)) {
                 static const char *const shapes[] = {
@@ -1147,8 +1151,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiSpin ------------------------------------------------ */
-        if (ecs_has(world, S.selected_entity, SafiSpin)) {
-            SafiSpin *spin = ecs_get_mut(world, S.selected_entity, SafiSpin);
+        if (ecs_has(world, sel, SafiSpin)) {
+            SafiSpin *spin = ecs_get_mut(world, sel, SafiSpin);
             if (mu_header_ex(ctx, "Spin", MU_OPT_EXPANDED)) {
                 safi_inspector_property_float(ctx, "speed", &spin->speed, 0.1f);
                 safi_inspector_property_vec3(ctx, "Axis", spin->axis, 0.1f);
@@ -1156,8 +1160,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiRigidBody ------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiRigidBody)) {
-            SafiRigidBody *rb = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiRigidBody)) {
+            SafiRigidBody *rb = ecs_get_mut(world, sel,
                                             SafiRigidBody);
             if (mu_header_ex(ctx, "RigidBody", MU_OPT_EXPANDED)) {
                 static const char *const body_types[] = {
@@ -1174,8 +1178,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiCollider -------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiCollider)) {
-            SafiCollider *col = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiCollider)) {
+            SafiCollider *col = ecs_get_mut(world, sel,
                                             SafiCollider);
             if (mu_header_ex(ctx, "Collider", MU_OPT_EXPANDED)) {
                 static const char *const shapes[] = { "Box", "Sphere" };
@@ -1197,8 +1201,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiDirectionalLight ------------------------------------ */
-        if (ecs_has(world, S.selected_entity, SafiDirectionalLight)) {
-            SafiDirectionalLight *dl = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiDirectionalLight)) {
+            SafiDirectionalLight *dl = ecs_get_mut(world, sel,
                                                     SafiDirectionalLight);
             if (mu_header_ex(ctx, "Directional Light", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Direction", dl->direction, 0.1f);
@@ -1208,8 +1212,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiPointLight ------------------------------------------ */
-        if (ecs_has(world, S.selected_entity, SafiPointLight)) {
-            SafiPointLight *pl = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiPointLight)) {
+            SafiPointLight *pl = ecs_get_mut(world, sel,
                                               SafiPointLight);
             if (mu_header_ex(ctx, "Point Light", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Color", pl->color, 0.05f);
@@ -1219,8 +1223,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiSpotLight ------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiSpotLight)) {
-            SafiSpotLight *sl = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiSpotLight)) {
+            SafiSpotLight *sl = ecs_get_mut(world, sel,
                                              SafiSpotLight);
             if (mu_header_ex(ctx, "Spot Light", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Color", sl->color, 0.05f);
@@ -1232,8 +1236,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiRectLight ------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiRectLight)) {
-            SafiRectLight *rl = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiRectLight)) {
+            SafiRectLight *rl = ecs_get_mut(world, sel,
                                              SafiRectLight);
             if (mu_header_ex(ctx, "Rect Light", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Color", rl->color, 0.05f);
@@ -1244,8 +1248,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
         }
 
         /* ---- SafiSkyLight -------------------------------------------- */
-        if (ecs_has(world, S.selected_entity, SafiSkyLight)) {
-            SafiSkyLight *sk = ecs_get_mut(world, S.selected_entity,
+        if (ecs_has(world, sel, SafiSkyLight)) {
+            SafiSkyLight *sk = ecs_get_mut(world, sel,
                                             SafiSkyLight);
             if (mu_header_ex(ctx, "Sky Light", MU_OPT_EXPANDED)) {
                 safi_inspector_property_vec3(ctx, "Color", sk->color, 0.05f);

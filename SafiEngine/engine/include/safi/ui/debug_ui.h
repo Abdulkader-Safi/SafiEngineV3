@@ -40,10 +40,6 @@ void safi_debug_ui_render(SafiRenderer *r);
  * safi_debug_ui_begin_frame and safi_debug_ui_prepare. */
 void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world);
 
-/* Get / set the entity shown in the inspector. */
-ecs_entity_t safi_debug_ui_selected_entity(void);
-void         safi_debug_ui_select_entity(ecs_entity_t e);
-
 /* Get the MicroUI context. NULL until safi_debug_ui_init has succeeded.
  * Include <microui.h> to access the full struct and call widget functions. */
 mu_Context *safi_debug_ui_context(void);

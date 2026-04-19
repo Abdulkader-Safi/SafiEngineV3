@@ -26,6 +26,8 @@ The editor cam is installed automatically by `safi_app_init` when `enable_debug_
 
 Pitch is clamped to ±89° to avoid gimbal lock. A new right-mouse-drag is only accepted if the cursor is over the viewport — but once dragging, the cursor can sweep over any MicroUI panel without breaking the gesture (SDL relative-mouse mode captures the cursor for the duration).
 
+**WASD / QE only translate while RMB is held.** Without RMB the keys are free for the Q/W/E/R [tool shortcuts](./editor_shortcuts); pressing W to switch to Translate doesn't also fly the camera forward. This matches the Unreal scene-view UX.
+
 ## Struct
 
 ```c

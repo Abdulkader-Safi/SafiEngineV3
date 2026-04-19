@@ -36,6 +36,14 @@ void safi_camera_screen_ray(const SafiCamera *cam,
                             float cursor_x, float cursor_y,
                             vec3 out_origin, vec3 out_dir);
 
+/* Project a world-space point to screen pixel coordinates (SDL origin:
+ * top-left). Returns false if the point is behind the camera or at the
+ * clip boundary; `out_x` / `out_y` are undefined in that case. */
+bool safi_camera_world_to_screen(const SafiCamera *cam,
+                                 int screen_w, int screen_h,
+                                 const float world[3],
+                                 float *out_x, float *out_y);
+
 #ifdef __cplusplus
 }
 #endif

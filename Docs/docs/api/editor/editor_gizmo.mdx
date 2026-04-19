@@ -1,0 +1,70 @@
+---
+title: Editor Gizmo
+description: Translate / rotate / scale manipulator handles that read selection from SafiEditorState and mutate the target entity's SafiTransform.
+---
+
+# Editor Gizmo
+
+```c
+#include <safi/editor/editor_gizmo.h>
+```
+
+The manipulator system that renders and drives the three-axis handles you see when an entity is selected in Edit mode. It reuses the low-level [gizmo draw list](../render/gizmo) for rendering and the [screen-ray helper](../render/camera) for mouse-to-world projection, so it stays a pure "input + draw" layer with no GPU plumbing of its own.
+
+Installed automatically by `safi_app_init` when `enable_debug_ui` is set.
+
+## Tools
+
+| Tool      | Geometry                                                            | Drag math                                                                                                                    |
+| --------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Select    | _(nothing drawn — click-to-pick is the only behaviour)_             | n/a                                                                                                                          |
+| Translate | Three coloured axes ending in small cubes (arrow caps)              | Closest-point-on-line-to-line — the cursor ray constrains the axis to slide along it                                         |
+| Rotate    | Three orthogonal rings + a tiny centre pivot cube                   | Ray-plane intersection gives the anchor on the ring plane; signed `atan2` gives the delta angle around the axis              |
+| Scale     | Three coloured axes ending in slightly fatter cubes + a centre cube | Same axis projection as Translate; delta is mapped to a multiplicative factor relative to the handle length, clamped to 0.01 |
+
+Axis colours follow Unity/Unreal conventions: X = red, Y = green, Z = blue. The hovered axis (or the axis being dragged) paints yellow.
+
+## System behaviour
+
+The gizmo runs a single system on `EcsOnUpdate`. On each tick it:
+
+1. **Gates.** Bails out unless `mode == EDIT`, `selected_tool != SELECT`, and `selected_entity` is alive. Rotate/scale fall back to the translate geometry as a placeholder if their own path is disabled at build time — in shipping code all three tools draw their own geometry.
+2. **Sizes.** Computes a world-space handle length that keeps the gizmo a roughly constant ~80 px on screen regardless of zoom:
+   `len ≈ 2 · tan(fov/2) · dist_to_cam · target_px / viewport_h`.
+3. **Hit-tests.** Unprojects each axis segment (translate/scale) or samples each ring (rotate) to screen space and picks the nearest segment to the cursor within 12 px. Only runs when the cursor is over the viewport (not a panel).
+4. **Drags.** On LMB-down over a hovered handle, snapshots the entity's transform and the pre-inverted parent-world matrix (so child entities translate correctly in their parent's local frame). Each frame while held, applies the tool's drag math. LMB-up ends the drag.
+5. **Draws.** Enqueues the current tool's geometry through [`safi_gizmo_draw_*`](../render/gizmo).
+
+## Drag details
+
+**Translate.** The handle follows the entity as it moves — the drag state stores a `current_world` position that `drag_apply_translate` updates each frame, which is read by the draw step. Reading `SafiGlobalTransform` directly would give the previous frame's value because transform propagation runs later on `EcsPostUpdate`.
+
+**Rotate.** The anchor vector is the cursor's projection onto the ring plane at drag-start. The frame-by-frame delta angle is `atan2((anchor × current) · axis, anchor · current)` — signed, continuous across `±π`. The handle itself does not rotate during drag (matches the pivot-stays-put convention in DCC tools); only the selected entity rotates.
+
+**Scale.** The drag delta is divided by the handle length, giving a factor `1 + delta/len` that feels like "drag the cube to 2× its resting distance → 2× scale" regardless of camera distance. Applied multiplicatively to the per-axis start scale, clamped to `0.01` so a careless drag doesn't zero out the transform.
+
+## Parent-aware translate
+
+For child entities, `drag_begin` pre-computes the inverse of the parent's `SafiGlobalTransform`. `drag_apply_translate` multiplies the new world-space target through that matrix to produce a parent-local position, which is written back to `SafiTransform.position`. Unparented entities get the identity matrix, so the multiplication reduces to a copy.
+
+## Input gating
+
+- Gizmo hit-test is skipped when `safi_debug_ui_mouse_over_viewport()` is false — clicks landing on the Scene or Inspector panel never start a drag.
+- A live drag stays live even if the cursor sweeps over a panel (the LMB release is the only drag-end signal).
+- `safi_editor_get_tool() == SELECT` or leaving Edit mode cancels any live drag.
+
+## API
+
+```c
+void safi_editor_gizmo_install(ecs_world_t *world);
+```
+
+Idempotent. Called automatically in `safi_app_init` when the debug UI is on.
+
+## See also
+
+- [Editor Toolbar](./editor_toolbar) — where the user picks a tool
+- [Editor State](./editor_state) — `selected_tool` + `selected_entity` drive the system
+- [Camera Math](../render/camera) — `safi_camera_screen_ray` + `safi_camera_world_to_screen`
+- [Gizmo Draw List](../render/gizmo) — the line/wireframe primitive layer
+- [Editor plan — M4](/roadmap/editor) — milestone this closes out

@@ -67,7 +67,7 @@ bool scene_setup(SafiApp *app) {
   ecs_set(world, g_demo.sky_entity, SafiName, {.value = "Sky"});
 
   /* Default selection for the inspector. */
-  safi_debug_ui_select_entity(g_demo.model_entity);
+  safi_editor_set_selected(world, g_demo.model_entity);
 
   /* Dynamic box that falls under gravity and lands on the ground.
    * Parented under Model so it appears in the Scene tree, but physics
