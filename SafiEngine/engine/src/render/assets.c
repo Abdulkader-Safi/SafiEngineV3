@@ -33,17 +33,28 @@ static int64_t file_mtime(const char *path) {
  * Stored verbatim (not normalized) — callers set it once from
  * safi_app_init. Empty string === "no root set". */
 static char g_project_root[512] = "";
+static char g_shader_root [512] = "";
+
+static void strip_trailing_slash(char *s) {
+    size_t len = strlen(s);
+    if (len > 1 && s[len - 1] == '/') s[len - 1] = '\0';
+}
 
 void safi_assets_set_project_root(const char *abs_root) {
     if (!abs_root || !abs_root[0]) { g_project_root[0] = '\0'; return; }
     strncpy(g_project_root, abs_root, sizeof(g_project_root) - 1);
     g_project_root[sizeof(g_project_root) - 1] = '\0';
-    /* Strip trailing slash for predictable joins. */
-    size_t len = strlen(g_project_root);
-    if (len > 1 && g_project_root[len - 1] == '/') g_project_root[len - 1] = '\0';
+    strip_trailing_slash(g_project_root);
 }
-
 const char *safi_assets_project_root(void) { return g_project_root; }
+
+void safi_assets_set_shader_root(const char *abs_root) {
+    if (!abs_root || !abs_root[0]) { g_shader_root[0] = '\0'; return; }
+    strncpy(g_shader_root, abs_root, sizeof(g_shader_root) - 1);
+    g_shader_root[sizeof(g_shader_root) - 1] = '\0';
+    strip_trailing_slash(g_shader_root);
+}
+const char *safi_assets_shader_root(void) { return g_shader_root; }
 
 static bool is_absolute_path(const char *p) {
     return p && p[0] == '/';
@@ -75,6 +86,118 @@ bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap) {
     strncpy(out, suffix, cap - 1);
     out[cap - 1] = '\0';
     return true;
+}
+
+/* ---- Directory enumeration --------------------------------------------- */
+
+/* Parse a comma-separated extension list into a flat "|ext1|ext2|" string
+ * (lowercase, no dots, surrounded by delimiters so substring search is
+ * just strstr). Caller's buffer must be large enough; clipped on overflow. */
+static void build_ext_filter(const char *filter, char *out, size_t cap) {
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    if (!filter || !filter[0]) return;
+    size_t n = 0;
+    out[n++] = '|';
+    const char *p = filter;
+    while (*p && n + 2 < cap) {
+        char c = *p++;
+        if (c == ' ' || c == '.') continue;
+        if (c == ',') {
+            /* Collapse consecutive commas so "a,,b" doesn't produce "||". */
+            if (n > 0 && out[n - 1] != '|') out[n++] = '|';
+            continue;
+        }
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        out[n++] = c;
+    }
+    if (n > 0 && out[n - 1] != '|' && n + 1 < cap) out[n++] = '|';
+    out[n] = '\0';
+}
+
+/* Return true when `path` ends in an extension whose lowercase form lives
+ * inside the pre-built filter string (e.g. "|glb|gltf|png|"). Empty filter
+ * means "allow everything". */
+static bool ext_matches_filter(const char *path, const char *filter_buf) {
+    if (!filter_buf || !filter_buf[0]) return true;
+    const char *dot = strrchr(path, '.');
+    if (!dot || !dot[1]) return false;
+    char needle[16 + 2];
+    size_t n = 0;
+    needle[n++] = '|';
+    const char *p = dot + 1;
+    while (*p && n + 2 < sizeof(needle)) {
+        char c = *p++;
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        needle[n++] = c;
+    }
+    needle[n++] = '|';
+    needle[n]   = '\0';
+    return strstr(filter_buf, needle) != NULL;
+}
+
+typedef struct {
+    SafiAssetEntry *out;
+    int             cap;
+    int             written;
+    const char     *filter_buf;   /* "|glb|png|..." or "" */
+} ListCtx;
+
+static SDL_EnumerationResult on_dir_entry(void *userdata,
+                                           const char *dirname,
+                                           const char *fname) {
+    ListCtx *c = (ListCtx *)userdata;
+    if (c->written >= c->cap) return SDL_ENUM_SUCCESS;
+
+    /* Build the absolute path once for stat() + relativise. `dirname`
+     * already ends with a trailing slash from SDL. */
+    char abs[1024];
+    SDL_snprintf(abs, sizeof(abs), "%s%s", dirname, fname);
+
+    struct stat st;
+    if (stat(abs, &st) != 0) return SDL_ENUM_CONTINUE;
+    bool is_dir = S_ISDIR(st.st_mode);
+
+    if (!is_dir && !ext_matches_filter(fname, c->filter_buf)) {
+        return SDL_ENUM_CONTINUE;
+    }
+
+    SafiAssetEntry *e = &c->out[c->written];
+    memset(e, 0, sizeof(*e));
+    e->is_dir     = is_dir;
+    e->size_bytes = is_dir ? 0ULL : (uint64_t)st.st_size;
+    e->mtime      = (int64_t)st.st_mtime;
+
+    /* Prefer project-root-relative; fall back to absolute. */
+    safi_assets_path_to_relative(abs, e->relative, sizeof(e->relative));
+    if (!e->relative[0]) {
+        SDL_snprintf(e->relative, sizeof(e->relative), "%s", abs);
+    }
+
+    c->written++;
+    return SDL_ENUM_CONTINUE;
+}
+
+int safi_assets_list(const char *dir, const char *filter,
+                     SafiAssetEntry *out, int cap) {
+    if (!out || cap <= 0) return 0;
+
+    char resolved[512];
+    safi_assets_path_resolve(dir ? dir : "", resolved, sizeof(resolved));
+    if (!resolved[0]) return 0;
+
+    char filter_buf[128];
+    build_ext_filter(filter, filter_buf, sizeof(filter_buf));
+
+    ListCtx ctx = {
+        .out = out, .cap = cap, .written = 0, .filter_buf = filter_buf,
+    };
+    if (!SDL_EnumerateDirectory(resolved, on_dir_entry, &ctx)) {
+        SAFI_LOG_WARN("assets: failed to enumerate '%s': %s",
+                      resolved, SDL_GetError());
+        return ctx.written;
+    }
+    return ctx.written;
 }
 
 #define MAX_MODELS     256
@@ -136,8 +259,15 @@ static struct {
     MaterialSlot materials[MAX_MATERIALS];
     ShaderSlot   shaders [MAX_SHADERS];
 
-    SafiAssetReloadFn reload_cb;
-    void             *reload_ctx;
+    /* Multi-subscriber reload callback list. Cap 4 is plenty — today the
+     * primitive system needs to invalidate its cached GPU pointers, the
+     * editor's thumbnail refresher (future) needs to re-render, and that's
+     * essentially it. Subscriber slots are fixed so we don't allocate. */
+    struct {
+        SafiAssetReloadFn cb;
+        void             *ctx;
+    } reload_subs[4];
+    int reload_sub_count;
 } S;
 
 /* ---- Handle packing ---------------------------------------------------- */
@@ -619,7 +749,9 @@ void safi_assets_reload(SafiModelHandle h) {
     s->model = nm;
     s->mtime = file_mtime(s->path);
     SAFI_LOG_INFO("assets: reloaded model '%s'", s->path);
-    if (S.reload_cb) S.reload_cb(h.id, S.reload_ctx);
+    for (int i = 0; i < S.reload_sub_count; i++) {
+        S.reload_subs[i].cb(h.id, S.reload_subs[i].ctx);
+    }
 }
 
 void safi_assets_reload_texture(SafiTextureHandle h) {
@@ -643,7 +775,9 @@ void safi_assets_reload_texture(SafiTextureHandle h) {
     s->height = (uint32_t)hp;
     s->mtime  = file_mtime(s->path);
     SAFI_LOG_INFO("assets: reloaded texture '%s' (%dx%d)", s->path, w, hp);
-    if (S.reload_cb) S.reload_cb(h.id, S.reload_ctx);
+    for (int i = 0; i < S.reload_sub_count; i++) {
+        S.reload_subs[i].cb(h.id, S.reload_subs[i].ctx);
+    }
 }
 
 void safi_assets_watch_tick(void) {
@@ -670,6 +804,13 @@ void safi_assets_watch_tick(void) {
 }
 
 void safi_assets_on_reload(SafiAssetReloadFn cb, void *ctx) {
-    S.reload_cb  = cb;
-    S.reload_ctx = ctx;
+    if (!cb) return;
+    const int cap = (int)(sizeof(S.reload_subs) / sizeof(S.reload_subs[0]));
+    if (S.reload_sub_count >= cap) {
+        SAFI_LOG_WARN("assets: reload subscriber table full (%d)", cap);
+        return;
+    }
+    S.reload_subs[S.reload_sub_count].cb  = cb;
+    S.reload_subs[S.reload_sub_count].ctx = ctx;
+    S.reload_sub_count++;
 }

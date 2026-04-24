@@ -35,6 +35,8 @@ int main(int argc, char **argv) {
        * it as the project root means scene files can reference
        * "models/player.glb" instead of the absolute build-machine path. */
       .project_root = SAFI_DEMO_ASSET_DIR,
+      /* Shaders are compiled into the CMake build dir, not the asset dir. */
+      .shader_root  = SAFI_DEMO_SHADER_DIR,
   };
   if (!safi_app_init(&app, &desc))
     return 1;

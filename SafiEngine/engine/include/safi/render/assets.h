@@ -76,6 +76,38 @@ bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap);
  * terminated). Falls back to `in` if no root is set. */
 void safi_assets_path_resolve(const char *in, char *out, size_t cap);
 
+/* Directory containing compiled shader artifacts (`<name>.<stage>.<ext>`).
+ * Separate from the project root because shaders are typically built by
+ * CMake into a build-tree directory, not the source tree. `safi_shader_load`
+ * falls back to this when the caller passes NULL. */
+void        safi_assets_set_shader_root(const char *abs_root);
+const char *safi_assets_shader_root(void);
+
+/* ---- Directory enumeration --------------------------------------------- *
+ *
+ * Shallow listing of files and subdirectories under a directory. The
+ * editor's future asset browser calls this; recursion is left to the
+ * caller so the browser can expand-on-demand. */
+
+typedef struct SafiAssetEntry {
+    char     relative[256];   /* path relative to project root */
+    bool     is_dir;
+    uint64_t size_bytes;      /* 0 for directories */
+    int64_t  mtime;           /* seconds since epoch */
+} SafiAssetEntry;
+
+/* Enumerate immediate children of `dir` (project-root-relative or abs).
+ * `filter` is a comma-separated extension list (case-insensitive, leading
+ * '.' ignored) — e.g. "glb,gltf,png". NULL or "" disables filtering.
+ * Filtering is file-only; subdirectories are always returned so callers
+ * can recurse.
+ *
+ * Writes up to `cap` entries into `out` and returns the count. The result
+ * is sorted by flecs' usual "whatever order SDL gave us" — callers that
+ * care about presentation order sort on the returned array. */
+int safi_assets_list(const char *dir, const char *filter,
+                     SafiAssetEntry *out, int cap);
+
 /* ---- Models (path-cached + refcounted) --------------------------------- */
 
 /* Loads a glTF/GLB with the unlit pipeline. Returns a handle with refcount

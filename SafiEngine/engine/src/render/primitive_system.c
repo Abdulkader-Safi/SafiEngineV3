@@ -203,6 +203,37 @@ static void primitive_system(ecs_iter_t *it) {
     ecs_query_fini(q);
 }
 
+/* ---- Hot-reload hook ---------------------------------------------------- *
+ *
+ * `primitive_system` caches the registry's SDL_GPUTexture* inside the
+ * built model's base_colors[] at rebuild time. When safi_assets_reload_texture
+ * swaps the underlying pointer, those caches become stale. On every reload
+ * event, scan all primitives and invalidate `_hash` for anyone referencing
+ * the reloaded texture id — the next primitive_system tick will rebuild
+ * them and re-resolve through safi_assets_resolve_texture. Model reloads
+ * don't need this since the render system resolves the model handle each
+ * frame. */
+
+static void on_asset_reload(uint32_t handle_id, void *ctx) {
+    ecs_world_t *world = (ecs_world_t *)ctx;
+    if (!world) return;
+
+    ecs_query_t *q = ecs_query(world, {
+        .terms      = {{ .id = ecs_id(SafiPrimitive) }},
+        .cache_kind = EcsQueryCacheNone,
+    });
+    ecs_iter_t it = ecs_query_iter(world, q);
+    while (ecs_query_next(&it)) {
+        SafiPrimitive *prims = ecs_field(&it, SafiPrimitive, 0);
+        for (int i = 0; i < it.count; i++) {
+            if (prims[i].texture.id == handle_id) {
+                prims[i]._hash = 0;
+            }
+        }
+    }
+    ecs_query_fini(q);
+}
+
 /* ---- Init --------------------------------------------------------------- *
  *
  * Handle release on component removal / entity destruction is handled by the
@@ -218,4 +249,8 @@ void safi_primitive_system_init(ecs_world_t *world, SafiApp *app) {
         .callback = primitive_system,
         .ctx      = app,
     });
+
+    /* Subscribe to texture hot-reloads so rebuilt models pick up the
+     * swapped SDL_GPUTexture* instead of rendering a freed pointer. */
+    safi_assets_on_reload(on_asset_reload, world);
 }

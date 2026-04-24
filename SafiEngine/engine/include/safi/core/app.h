@@ -36,6 +36,10 @@ typedef struct SafiAppDesc {
      * files store paths in this form so they stay portable. NULL → current
      * working directory at app-init time. */
     const char *project_root;
+    /* Directory containing compiled shader artifacts. Separate from
+     * project_root because CMake writes shaders into the build tree, not
+     * into the source assets folder. NULL → `{project_root}/shaders`. */
+    const char *shader_root;
     /* When true, the engine polls file mtimes under the project root and
      * hot-reloads changed models/textures. Defaults to on in debug-UI
      * builds (editor), off otherwise. */

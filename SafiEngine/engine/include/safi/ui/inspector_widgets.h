@@ -19,7 +19,11 @@ void safi_inspector_property_vec3  (mu_Context *ctx, const char *label,
                                     float *xyz, float step);
 void safi_inspector_property_color_rgba(mu_Context *ctx, const char *label,
                                         float rgba[4], float step);
-void safi_inspector_property_string(mu_Context *ctx, const char *label,
+/* Returns the underlying mu_textbox_ex result: MU_RES_CHANGE while the
+ * user is editing, MU_RES_SUBMIT on Enter, 0 otherwise. Callers that need
+ * "commit on Enter" semantics (e.g. loading an asset on path change)
+ * should only apply changes when MU_RES_SUBMIT is set. */
+int  safi_inspector_property_string(mu_Context *ctx, const char *label,
                                     char *buf, int cap);
 void safi_inspector_property_bool  (mu_Context *ctx, const char *label,
                                     bool *val);

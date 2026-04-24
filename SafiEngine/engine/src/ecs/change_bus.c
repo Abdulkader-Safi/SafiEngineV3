@@ -1,5 +1,7 @@
 #include "safi/ecs/change_bus.h"
 #include "safi/ecs/component_registry.h"
+#include "safi/ecs/components.h"
+#include "safi/editor/editor_state.h"
 #include "safi/core/log.h"
 
 #include <string.h>
@@ -48,9 +50,15 @@ void safi_change_bus_begin_group(void) {
 }
 void safi_change_bus_end_group(void) { G.group_id = 0; }
 
-/* One observer per serializable component — fires when ecs_set writes. */
+/* One observer per serializable component — fires when ecs_set writes.
+ * Filtered to EDIT mode so engine-internal writes during Play (physics sync
+ * touching SafiTransform every fixed step, for instance) don't flood undo
+ * history and inspector dirty tracking. Subscribers that want the Play-time
+ * stream can subscribe to raw flecs OnSet directly. */
 static void on_component_set(ecs_iter_t *it) {
     if (G.sub_count == 0) return;
+    const SafiEditorState *ed = ecs_singleton_get(it->world, SafiEditorState);
+    if (ed && ed->mode != SAFI_EDITOR_MODE_EDIT) return;
     for (int i = 0; i < it->count; i++) {
         SafiChange change = {
             .entity    = it->entities[i],

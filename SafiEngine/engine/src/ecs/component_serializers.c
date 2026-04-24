@@ -220,14 +220,11 @@ static void deser_mesh_renderer(ecs_world_t *w, ecs_entity_t e, const cJSON *j) 
     mr.visible = s_read_bool(cJSON_GetObjectItem(j, "visible"), true);
     const cJSON *mp = cJSON_GetObjectItem(j, "model_path");
     if (mp && cJSON_IsString(mp) && mp->valuestring[0]) {
-        /* Load through the asset registry. Use lit pipeline by default.
-         * SAFI_ENGINE_SHADER_DIR is defined at compile time for engine code. */
-#ifdef SAFI_ENGINE_SHADER_DIR
-        mr.model = safi_assets_load_model_lit(mp->valuestring,
-                                               SAFI_ENGINE_SHADER_DIR);
-#else
-        mr.model = safi_assets_load_model_lit(mp->valuestring, "shaders");
-#endif
+        /* Load through the asset registry. NULL shader_dir → the loader
+         * uses `safi_assets_shader_root()`, which the app configured once
+         * at init from `SafiAppDesc.shader_root`. Keeps scene files
+         * portable between build and install trees. */
+        mr.model = safi_assets_load_model_lit(mp->valuestring, NULL);
     }
     /* .copy hook on SafiMeshRenderer releases the previous handle (restore
      * path) and acquires mr.model. Then drop the loader's own +1 so the net
@@ -430,8 +427,10 @@ static void insp_primitive(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {
         }
         char prev[256];
         strncpy(prev, tex_buf, sizeof(prev));
-        safi_inspector_property_string(ctx, "Texture", tex_buf, (int)sizeof(tex_buf));
-        if (strcmp(prev, tex_buf) != 0) {
+        int tex_res = safi_inspector_property_string(ctx, "Texture", tex_buf,
+                                                      (int)sizeof(tex_buf));
+        /* Commit on Enter only — otherwise every keystroke decodes an image. */
+        if ((tex_res & MU_RES_SUBMIT) && strcmp(prev, tex_buf) != 0) {
             SafiTextureHandle new_tex = {0};
             if (tex_buf[0]) new_tex = safi_assets_load_texture(tex_buf);
             /* Assign through ecs_set so prim_copy releases the old handle

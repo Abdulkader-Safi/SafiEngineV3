@@ -778,12 +778,14 @@ void safi_inspector_property_color_rgba(mu_Context *ctx, const char *label,
 }
 
 /* Label + single-line text input bound to a char buffer. Wraps mu_textbox_ex
- * so the caller can bind a SafiPrimitive.texture_path or similar. */
-void safi_inspector_property_string(mu_Context *ctx, const char *label,
-                               char *buf, int cap) {
+ * so the caller can bind a SafiPrimitive.texture_path or similar. Returns
+ * MU_RES_CHANGE during edits and MU_RES_SUBMIT when the user presses Enter;
+ * callers that need commit-on-Enter semantics filter on MU_RES_SUBMIT. */
+int safi_inspector_property_string(mu_Context *ctx, const char *label,
+                                    char *buf, int cap) {
     mu_layout_row(ctx, 2, (int[]){ 80, -1 }, 0);
     mu_label(ctx, label);
-    mu_textbox_ex(ctx, buf, cap, 0);
+    return mu_textbox_ex(ctx, buf, cap, 0);
 }
 
 /* Label + checkbox bound to a bool. MicroUI's checkbox takes int*, so we
@@ -1158,8 +1160,12 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 }
                 char prev[256];
                 strncpy(prev, tex_buf, sizeof(prev));
-                safi_inspector_property_string(ctx, "Texture", tex_buf, (int)sizeof(tex_buf));
-                if (strcmp(prev, tex_buf) != 0) {
+                int tex_res = safi_inspector_property_string(ctx, "Texture",
+                                                              tex_buf,
+                                                              (int)sizeof(tex_buf));
+                /* Only commit on Enter — otherwise every keystroke would
+                 * kick a path resolve + stb_image decode. */
+                if ((tex_res & MU_RES_SUBMIT) && strcmp(prev, tex_buf) != 0) {
                     SafiTextureHandle new_tex = {0};
                     if (tex_buf[0]) new_tex = safi_assets_load_texture(tex_buf);
                     SafiPrimitive updated = *pr;

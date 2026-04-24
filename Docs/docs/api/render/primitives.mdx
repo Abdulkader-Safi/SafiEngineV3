@@ -95,7 +95,7 @@ ecs_set(world, e, SafiPrimitive, {
 safi_assets_release_texture(brick);
 ```
 
-Clear the handle (`.texture = {0}`) to fall back to the solid `color` again. The inspector's "Texture" field accepts a project-root-relative path and loads through the same asset registry.
+Clear the handle (`.texture = {0}`) to fall back to the solid `color` again. The inspector's "Texture" field accepts a project-root-relative path, **commits on Enter** (so typing a partial path doesn't trigger a load per keystroke), and then loads through the same asset registry. Texture hot-reloads propagate back to primitives automatically: `primitive_system` subscribes to `safi_assets_on_reload` and rebuilds affected entities next frame so the new GPU texture replaces the cached pointer.
 
 ## Inspector
 

@@ -11,6 +11,7 @@
  *     ext   = "spv" | "msl"
  */
 #include "safi/render/shader.h"
+#include "safi/render/assets.h"
 #include "safi/core/log.h"
 
 #include <SDL3/SDL.h>
@@ -71,6 +72,18 @@ SDL_GPUShader *safi_shader_load(SafiRenderer    *r,
         SAFI_LOG_ERROR("safi_shader_load('%s'): no supported shader format "
                        "(device reports 0x%x)", name, (unsigned)supported);
         return NULL;
+    }
+
+    /* NULL shader_dir → use the registered shader root (set via
+     * SafiAppDesc.shader_root). Keeps shader paths portable across builds
+     * and unblocks the M8 shipping story where compile-time paths fail. */
+    if (!shader_dir || !shader_dir[0]) {
+        shader_dir = safi_assets_shader_root();
+        if (!shader_dir || !shader_dir[0]) {
+            SAFI_LOG_ERROR("safi_shader_load('%s'): no shader_dir and no "
+                           "shader root registered", name);
+            return NULL;
+        }
     }
 
     char path[1024];

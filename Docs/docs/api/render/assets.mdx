@@ -58,6 +58,38 @@ bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap);
 void safi_assets_path_resolve(const char *in, char *out, size_t cap);
 ```
 
+### Shader root
+
+Shaders live in the CMake build tree (not the source asset tree), so they get their own root:
+
+```c
+void        safi_assets_set_shader_root(const char *abs);
+const char *safi_assets_shader_root(void);
+```
+
+`safi_shader_load` (and callers like `safi_assets_load_model_lit`) accept a `NULL` `shader_dir` argument and fall back to this root. Set it once from `SafiAppDesc.shader_root` and never pass it again. Scene files that stored model paths no longer have to know where compiled shaders live on the install machine.
+
+## Directory enumeration
+
+The M3 asset browser lists files on disk via `safi_assets_list` — shallow, filtered by extension, results already anchored to the project root:
+
+```c
+typedef struct SafiAssetEntry {
+    char     relative[256];   // project-root-relative (or abs if outside root)
+    bool     is_dir;
+    uint64_t size_bytes;
+    int64_t  mtime;
+} SafiAssetEntry;
+
+SafiAssetEntry rows[64];
+int n = safi_assets_list("models", "glb,gltf", rows, 64);
+// n == 2: BoxTextured.glb + player.glb
+```
+
+- `filter` is a comma-separated extension list, case-insensitive, with or without leading dots. `NULL` or `""` disables filtering.
+- Subdirectories are always returned regardless of filter so callers can recurse.
+- Order is whatever SDL's `SDL_EnumerateDirectory` gives back; sort on the result if you need a consistent UI order.
+
 ## Path-cached kinds: Model & Texture
 
 Models and textures are loaded from disk and **deduplicated by path**: if two entities load `models/player.glb`, only one decode + upload happens.
@@ -121,7 +153,7 @@ SafiAppDesc desc = {
 safi_assets_reload(model_handle);          // re-decode from .path
 safi_assets_reload_texture(texture_handle);
 
-// Subscribe to reload events — fires after the swap.
+// Subscribe to reload events — fires after the swap. Up to 4 subscribers.
 safi_assets_on_reload(my_callback, my_ctx);
 
 // The tick is cheap (stat() per active slot) and runs ~4×/second.
@@ -129,6 +161,8 @@ safi_assets_watch_tick();
 ```
 
 The engine ticks `safi_assets_watch_tick()` from inside `safi_app_tick` with a 250 ms throttle, so "save in editor → see in game" feels immediate without stat-spamming the filesystem.
+
+`safi_assets_reload_texture` swaps the `SDL_GPUTexture*` in its slot in place — callers that cache the raw pointer (e.g. `SafiModel.base_colors[]`) need to resolve through `safi_assets_resolve_texture` again after a reload. `primitive_system` does this automatically: it subscribes to the reload callback at init, and on any texture reload invalidates the `_hash` of every `SafiPrimitive` referencing that texture handle so the next frame rebuilds and picks up the fresh pointer. Editor code that renders thumbnails into GPU textures should subscribe the same way.
 
 ## SafiMeshRenderer integration
 
@@ -157,8 +191,11 @@ safi_model_draw_lit(r, m, &vs, &cam, &lights);
 | `safi_assets_shutdown()`                                | Drain all slots, warn on leaks.                     |
 | `safi_assets_set_project_root(abs)`                     | Set the root for relative path resolution.          |
 | `safi_assets_project_root()`                            | Retrieve the root currently in effect.              |
+| `safi_assets_set_shader_root(abs)`                      | Register the shader build-tree directory.           |
+| `safi_assets_shader_root()`                             | Retrieve the shader root in effect.                 |
 | `safi_assets_path_resolve(in, out, cap)`                | Absolute passthrough; join relatives onto the root. |
 | `safi_assets_path_to_relative(abs, out, cap)`           | Strip the project-root prefix (for scene save).     |
+| `safi_assets_list(dir, filter, out, cap)`               | Enumerate children of `dir`; filter by extension.   |
 | `safi_assets_watch_tick()`                              | Poll mtimes, reload changed slots (ticked by app).  |
 | `safi_assets_load_model(path, shader_dir)`              | Load a glTF with unlit pipeline.                    |
 | `safi_assets_load_model_lit(path, shader_dir)`          | Load a glTF with lit pipeline.                      |

@@ -114,6 +114,8 @@ safi_change_bus_begin_group();
 safi_change_bus_end_group();
 ```
 
+The bus is **gated on editor mode**: callbacks only fire when `SafiEditorState.mode == EDIT`. Engine-internal writes during Play — notably the physics sync that touches `SafiTransform` every fixed step on every rigid body — are swallowed before subscribers see them, so undo history and inspector dirty tracking don't flood during gameplay. Subscribers that need the Play-time stream can observe the raw flecs `EcsOnSet` event directly; the bus is intentionally editor-centric.
+
 ## See also
 
 - [Scene Serialization](../scene/scene) — uses the registry to serialize entities

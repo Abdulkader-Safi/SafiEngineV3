@@ -48,6 +48,20 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         }
     }
 
+    /* Register the shader root. Callers usually pass the CMake-emitted
+     * build dir; NULL falls back to `<project_root>/shaders`. Once set,
+     * safi_shader_load accepts NULL as shader_dir. */
+    if (desc->shader_root && desc->shader_root[0]) {
+        safi_assets_set_shader_root(desc->shader_root);
+    } else {
+        const char *root = safi_assets_project_root();
+        if (root && root[0]) {
+            char fallback[512];
+            SDL_snprintf(fallback, sizeof(fallback), "%s/shaders", root);
+            safi_assets_set_shader_root(fallback);
+        }
+    }
+
     app->world = safi_ecs_create();
     if (!app->world) {
         safi_renderer_shutdown(&app->renderer);
