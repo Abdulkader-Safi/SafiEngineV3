@@ -31,6 +31,10 @@ int main(int argc, char **argv) {
       .height = 1080,
       .vsync = true,
       .enable_debug_ui = true,
+      /* Demo assets live under SAFI_DEMO_ASSET_DIR (set by CMake). Using
+       * it as the project root means scene files can reference
+       * "models/player.glb" instead of the absolute build-machine path. */
+      .project_root = SAFI_DEMO_ASSET_DIR,
   };
   if (!safi_app_init(&app, &desc))
     return 1;

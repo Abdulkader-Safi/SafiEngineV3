@@ -196,6 +196,7 @@ void safi_editor_camera_install(ecs_world_t *world) {
 
     g_editor_cam = ecs_new(world);
     ecs_set(world, g_editor_cam, SafiName, { .value = "EditorCamera" });
+    ecs_add(world, g_editor_cam, SafiEngineOwned);
 
     SafiTransform xf = {0};
     xf.position[0] = 0.0f; xf.position[1] = 1.5f; xf.position[2] = 6.0f;

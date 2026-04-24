@@ -9,9 +9,9 @@ description: Central table mapping ECS component IDs to serialize/deserialize/in
 #include <safi/ecs/component_registry.h>
 ```
 
-The component registry is a central lookup table mapping each registered component's `ecs_id_t` to its human-readable name, serialize/deserialize callbacks (for scene files), and an inspector draw callback.
+The component registry is a central lookup table mapping each registered component's `ecs_id_t` to its human-readable name, serialize/deserialize callbacks (for scene files), an inspector draw callback, and a `default_init` factory used by the editor's "+ Add Component" flow and by the [entity-preset helpers](../scene/scene).
 
-The [scene serializer](../scene/scene), the [MicroUI inspector](../ui/debug_ui), and the future editor's "+ Add Component" menu all query this table.
+The [scene serializer](../scene/scene), the [MicroUI inspector](../ui/debug_ui), and the editor's "+ Add Component" menu all query this table.
 
 ## Registering a component
 
@@ -33,14 +33,21 @@ static void deser_my_comp(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
     ecs_set_ptr(w, e, MyComponent, &c);
 }
 
+static void init_my_comp(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    MyComponent c = { .speed = 1.0f };  // sensible non-zero default
+    ecs_set_ptr(w, e, MyComponent, &c);
+}
+
 // Call after ECS_COMPONENT_DEFINE(world, MyComponent):
 safi_component_registry_register(&(SafiComponentInfo){
-    .id          = ecs_id(MyComponent),
-    .name        = "MyComponent",
-    .size        = sizeof(MyComponent),
-    .serialize   = ser_my_comp,
-    .deserialize = deser_my_comp,
-    .draw        = NULL,           // no inspector row (optional)
+    .id           = ecs_id(MyComponent),
+    .name         = "MyComponent",
+    .size         = sizeof(MyComponent),
+    .serialize    = ser_my_comp,
+    .deserialize  = deser_my_comp,
+    .draw         = NULL,           // no inspector row (optional)
+    .default_init = init_my_comp,   // used by construct + presets
     .serializable = true,
 });
 ```
@@ -55,6 +62,13 @@ int                      safi_component_registry_count(void);
 const SafiComponentInfo *safi_component_registry_get(int index);
 const SafiComponentInfo *safi_component_registry_find(ecs_id_t id);
 const SafiComponentInfo *safi_component_registry_find_by_name(const char *name);
+
+/* Construct a component by name with its registered defaults. Returns
+ * false when no component with that name is registered. Falls back to
+ * ecs_add_id (zero-initialised bytes) when no default_init is set. */
+bool safi_component_registry_construct(ecs_world_t *world,
+                                        ecs_entity_t entity,
+                                        const char *name);
 ```
 
 ## SafiComponentInfo
@@ -67,6 +81,7 @@ typedef struct SafiComponentInfo {
     SafiSerializeFn   serialize;    // NULL = not written to scene files
     SafiDeserializeFn deserialize;  // NULL = not read from scene files
     SafiInspectorFn   draw;         // NULL = no inspector row
+    SafiDefaultInitFn default_init; // NULL = ecs_add_id + zero bytes
     bool              serializable; // convenience flag
 } SafiComponentInfo;
 ```
@@ -77,6 +92,26 @@ typedef struct SafiComponentInfo {
 typedef cJSON *(*SafiSerializeFn)  (ecs_world_t *w, ecs_entity_t e, ecs_id_t id);
 typedef void   (*SafiDeserializeFn)(ecs_world_t *w, ecs_entity_t e, const cJSON *json);
 typedef void   (*SafiInspectorFn)  (mu_Context *ctx, ecs_world_t *w, ecs_entity_t e);
+typedef void   (*SafiDefaultInitFn)(ecs_world_t *w, ecs_entity_t e, ecs_id_t id);
+```
+
+## Change bus
+
+Every component registered with `serializable=true` is observed by the engine's **change bus**. On any `ecs_set`, subscribers receive a `SafiChange { entity, component, frame, group_id }`. The M6 undo ring subscribes here; editor tools that coalesce a batch of edits into a single undo step wrap the batch in `safi_change_bus_begin_group / _end_group` (gizmo drags already do this automatically).
+
+```c
+#include <safi/ecs/change_bus.h>
+
+static void on_change(const SafiChange *c, void *ctx) {
+    /* ... push to undo ring, mark dirty, etc. */
+}
+
+safi_change_bus_subscribe(on_change, my_undo_ring);
+
+/* Coalesce a batch of writes into one logical step. */
+safi_change_bus_begin_group();
+/* ... a series of ecs_set calls ... */
+safi_change_bus_end_group();
 ```
 
 ## See also

@@ -17,8 +17,65 @@
 #include <stb_image.h>
 
 #include <SDL3/SDL.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+static int64_t file_mtime(const char *path) {
+    struct stat st;
+    if (!path || !path[0]) return 0;
+    if (stat(path, &st) != 0) return 0;
+    return (int64_t)st.st_mtime;
+}
+
+/* ---- Project root ------------------------------------------------------- *
+ * Stored verbatim (not normalized) — callers set it once from
+ * safi_app_init. Empty string === "no root set". */
+static char g_project_root[512] = "";
+
+void safi_assets_set_project_root(const char *abs_root) {
+    if (!abs_root || !abs_root[0]) { g_project_root[0] = '\0'; return; }
+    strncpy(g_project_root, abs_root, sizeof(g_project_root) - 1);
+    g_project_root[sizeof(g_project_root) - 1] = '\0';
+    /* Strip trailing slash for predictable joins. */
+    size_t len = strlen(g_project_root);
+    if (len > 1 && g_project_root[len - 1] == '/') g_project_root[len - 1] = '\0';
+}
+
+const char *safi_assets_project_root(void) { return g_project_root; }
+
+static bool is_absolute_path(const char *p) {
+    return p && p[0] == '/';
+}
+
+void safi_assets_path_resolve(const char *in, char *out, size_t cap) {
+    if (!out || cap == 0) return;
+    if (!in || !in[0])    { out[0] = '\0'; return; }
+    if (is_absolute_path(in) || !g_project_root[0]) {
+        strncpy(out, in, cap - 1);
+        out[cap - 1] = '\0';
+        return;
+    }
+    snprintf(out, cap, "%s/%s", g_project_root, in);
+}
+
+bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap) {
+    if (!out || cap == 0) return false;
+    out[0] = '\0';
+    if (!abs || !abs[0]) return false;
+    size_t root_len = strlen(g_project_root);
+    if (root_len == 0 || strncmp(abs, g_project_root, root_len) != 0) {
+        strncpy(out, abs, cap - 1);
+        out[cap - 1] = '\0';
+        return false;
+    }
+    const char *suffix = abs + root_len;
+    while (*suffix == '/') suffix++;
+    strncpy(out, suffix, cap - 1);
+    out[cap - 1] = '\0';
+    return true;
+}
 
 #define MAX_MODELS     256
 #define MAX_TEXTURES   512
@@ -35,6 +92,7 @@ typedef struct {
     bool        is_lit;
     char        shader_dir[PATH_CAP];
     SafiModel   model;
+    int64_t     mtime;           /* st_mtim.tv_sec cached after last load */
 } ModelSlot;
 
 typedef struct {
@@ -44,6 +102,7 @@ typedef struct {
     char             path[PATH_CAP];
     uint32_t         width, height;
     SDL_GPUTexture  *tex;
+    int64_t          mtime;      /* st_mtim.tv_sec cached after last load */
 } TextureSlot;
 
 typedef struct {
@@ -254,11 +313,17 @@ static SafiModelHandle load_model_impl(const char *path, const char *shader_dir,
                                         bool is_lit) {
     if (!path || !path[0]) return (SafiModelHandle){0};
 
-    int idx = find_model_by_path(path, is_lit);
+    /* Resolve once so the cache keys by the absolute path regardless of
+     * whether the caller passed an abs or a project-relative string. */
+    char resolved[PATH_CAP];
+    safi_assets_path_resolve(path, resolved, sizeof(resolved));
+    if (!resolved[0]) return (SafiModelHandle){0};
+
+    int idx = find_model_by_path(resolved, is_lit);
     if (idx >= 0) {
         S.models[idx].refcount++;
         SAFI_LOG_INFO("assets: model cache hit '%s' (refcount=%d, %s)",
-                      path, S.models[idx].refcount, is_lit ? "lit" : "unlit");
+                      resolved, S.models[idx].refcount, is_lit ? "lit" : "unlit");
         return (SafiModelHandle){ pack_handle((uint32_t)idx,
                                               S.models[idx].generation) };
     }
@@ -272,22 +337,23 @@ static SafiModelHandle load_model_impl(const char *path, const char *shader_dir,
     ModelSlot *s = &S.models[idx];
     SafiModel m;
     bool ok = is_lit
-        ? safi_model_load_lit(S.r, path, shader_dir, &m)
-        : safi_model_load    (S.r, path, shader_dir, &m);
+        ? safi_model_load_lit(S.r, resolved, shader_dir, &m)
+        : safi_model_load    (S.r, resolved, shader_dir, &m);
     if (!ok) return (SafiModelHandle){0};
 
     s->model       = m;
     s->in_use      = true;
     s->refcount    = 1;
     s->is_lit      = is_lit;
-    strncpy(s->path, path, PATH_CAP - 1); s->path[PATH_CAP - 1] = '\0';
+    s->mtime       = file_mtime(resolved);
+    strncpy(s->path, resolved, PATH_CAP - 1); s->path[PATH_CAP - 1] = '\0';
     if (shader_dir) {
         strncpy(s->shader_dir, shader_dir, PATH_CAP - 1);
         s->shader_dir[PATH_CAP - 1] = '\0';
     } else {
         s->shader_dir[0] = '\0';
     }
-    SAFI_LOG_INFO("assets: loaded model '%s' (%s)", path, is_lit ? "lit" : "unlit");
+    SAFI_LOG_INFO("assets: loaded model '%s' (%s)", resolved, is_lit ? "lit" : "unlit");
     return (SafiModelHandle){ pack_handle((uint32_t)idx, s->generation) };
 }
 
@@ -385,20 +451,24 @@ static SDL_GPUTexture *upload_rgba8(SafiRenderer *r, const uint8_t *pixels,
 SafiTextureHandle safi_assets_load_texture(const char *path) {
     if (!path || !path[0]) return (SafiTextureHandle){0};
 
-    int idx = find_texture_by_path(path);
+    char resolved[PATH_CAP];
+    safi_assets_path_resolve(path, resolved, sizeof(resolved));
+    if (!resolved[0]) return (SafiTextureHandle){0};
+
+    int idx = find_texture_by_path(resolved);
     if (idx >= 0) {
         S.textures[idx].refcount++;
         SAFI_LOG_INFO("assets: texture cache hit '%s' (refcount=%d)",
-                      path, S.textures[idx].refcount);
+                      resolved, S.textures[idx].refcount);
         return (SafiTextureHandle){ pack_handle((uint32_t)idx,
                                                 S.textures[idx].generation) };
     }
 
     int w = 0, h = 0, n = 0;
-    uint8_t *pixels = stbi_load(path, &w, &h, &n, 4);
+    uint8_t *pixels = stbi_load(resolved, &w, &h, &n, 4);
     if (!pixels) {
         SAFI_LOG_WARN("assets: failed to load texture '%s' (%s)",
-                      path, stbi_failure_reason());
+                      resolved, stbi_failure_reason());
         return (SafiTextureHandle){0};
     }
     SDL_GPUTexture *tex = upload_rgba8(S.r, pixels, (uint32_t)w, (uint32_t)h);
@@ -417,8 +487,9 @@ SafiTextureHandle safi_assets_load_texture(const char *path) {
     s->height   = (uint32_t)h;
     s->in_use   = true;
     s->refcount = 1;
-    strncpy(s->path, path, PATH_CAP - 1); s->path[PATH_CAP - 1] = '\0';
-    SAFI_LOG_INFO("assets: loaded texture '%s' (%dx%d)", path, w, h);
+    s->mtime    = file_mtime(resolved);
+    strncpy(s->path, resolved, PATH_CAP - 1); s->path[PATH_CAP - 1] = '\0';
+    SAFI_LOG_INFO("assets: loaded texture '%s' (%dx%d)", resolved, w, h);
     return (SafiTextureHandle){ pack_handle((uint32_t)idx, s->generation) };
 }
 
@@ -546,6 +617,7 @@ void safi_assets_reload(SafiModelHandle h) {
 
     safi_model_destroy(S.r, &s->model);
     s->model = nm;
+    s->mtime = file_mtime(s->path);
     SAFI_LOG_INFO("assets: reloaded model '%s'", s->path);
     if (S.reload_cb) S.reload_cb(h.id, S.reload_ctx);
 }
@@ -569,8 +641,32 @@ void safi_assets_reload_texture(SafiTextureHandle h) {
     s->tex    = nt;
     s->width  = (uint32_t)w;
     s->height = (uint32_t)hp;
+    s->mtime  = file_mtime(s->path);
     SAFI_LOG_INFO("assets: reloaded texture '%s' (%dx%d)", s->path, w, hp);
     if (S.reload_cb) S.reload_cb(h.id, S.reload_ctx);
+}
+
+void safi_assets_watch_tick(void) {
+    if (!S.initialized) return;
+
+    for (int i = 0; i < MAX_MODELS; i++) {
+        ModelSlot *s = &S.models[i];
+        if (!s->in_use || !s->path[0]) continue;
+        int64_t m = file_mtime(s->path);
+        if (m != 0 && m != s->mtime) {
+            SafiModelHandle h = { pack_handle((uint32_t)i, s->generation) };
+            safi_assets_reload(h);
+        }
+    }
+    for (int i = 0; i < MAX_TEXTURES; i++) {
+        TextureSlot *s = &S.textures[i];
+        if (!s->in_use || !s->path[0]) continue;
+        int64_t m = file_mtime(s->path);
+        if (m != 0 && m != s->mtime) {
+            SafiTextureHandle h = { pack_handle((uint32_t)i, s->generation) };
+            safi_assets_reload_texture(h);
+        }
+    }
 }
 
 void safi_assets_on_reload(SafiAssetReloadFn cb, void *ctx) {

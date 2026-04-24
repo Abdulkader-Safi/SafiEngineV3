@@ -1,6 +1,6 @@
 ---
 title: Asset System
-description: Refcounted handle types for models, textures, meshes, materials, and shaders — with path-based deduplication and a hot-reload stub.
+description: Refcounted handle types for models, textures, meshes, materials, and shaders — with path-based deduplication, project-root-relative paths, and a poll-based hot-reload watcher.
 ---
 
 # Asset System
@@ -22,6 +22,41 @@ typedef struct { uint32_t id; } SafiShaderHandle;
 ```
 
 `id == 0` is always invalid ("no handle"). Internally, `id = (slot_index + 1) | (generation << 16)` — the same packing scheme used by [`SafiSoundHandle`](../audio/audio) in the audio subsystem.
+
+## Project root + relative paths
+
+Scene files store asset locations **relative to the project root** so the same JSON works across machines. The root is set once in `safi_app_init`:
+
+```c
+SafiApp app;
+safi_app_init(&app, &(SafiAppDesc){
+    .title        = "My Game",
+    .project_root = "/path/to/assets",   // or NULL → CWD at init
+    ...
+});
+```
+
+Both absolute and relative paths work everywhere:
+
+```c
+// All three resolve to the same slot — path cache keys on the absolute form.
+safi_assets_load_model_lit("models/player.glb", shader_dir);
+safi_assets_load_model_lit("/abs/path/to/assets/models/player.glb", shader_dir);
+```
+
+Helpers in the header:
+
+```c
+void        safi_assets_set_project_root(const char *abs);
+const char *safi_assets_project_root(void);
+
+/* Strip the project-root prefix if `abs` is inside it. Returns false
+ * (passes `abs` through verbatim) when the path lives elsewhere. */
+bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap);
+
+/* Absolute passthrough; join relative paths onto the project root. */
+void safi_assets_path_resolve(const char *in, char *out, size_t cap);
+```
 
 ## Path-cached kinds: Model & Texture
 
@@ -70,19 +105,30 @@ Every slot has an `int refcount`.
 
 Components that carry handles (e.g. `SafiMeshRenderer.model`) should acquire on attachment and release on removal. The engine's `primitive_system` demonstrates this pattern via its `EcsOnRemove` observer.
 
-## Hot-reload (stub)
+## Hot-reload
 
-The API surface exists; SDL filesystem watching is **not yet wired**.
+A poll-based watcher walks every loaded model/texture slot, stat()s the underlying file, and calls the reload entry point when mtime advances. Handle ids stay stable across reloads — only the backing GPU resource is swapped.
 
 ```c
+// Toggled via SafiAppDesc; defaults on when enable_debug_ui is true.
+SafiAppDesc desc = {
+    ...
+    .enable_debug_ui  = true,
+    .enable_hot_reload = true,   // optional override for release builds
+};
+
+// Manual reload entry points still exist (editor "Reload" buttons, tests):
 safi_assets_reload(model_handle);          // re-decode from .path
 safi_assets_reload_texture(texture_handle);
 
-// Subscribe to reload events (one global subscriber).
+// Subscribe to reload events — fires after the swap.
 safi_assets_on_reload(my_callback, my_ctx);
+
+// The tick is cheap (stat() per active slot) and runs ~4×/second.
+safi_assets_watch_tick();
 ```
 
-The editor will call these from the asset browser's "Reload" button. The handle id stays stable — only the underlying GPU resource is swapped.
+The engine ticks `safi_assets_watch_tick()` from inside `safi_app_tick` with a 250 ms throttle, so "save in editor → see in game" feels immediate without stat-spamming the filesystem.
 
 ## SafiMeshRenderer integration
 
@@ -109,6 +155,11 @@ safi_model_draw_lit(r, m, &vs, &cam, &lights);
 | ------------------------------------------------------- | --------------------------------------------------- |
 | `safi_assets_init(r)`                                   | Initialize the registry. Called by `safi_app_init`. |
 | `safi_assets_shutdown()`                                | Drain all slots, warn on leaks.                     |
+| `safi_assets_set_project_root(abs)`                     | Set the root for relative path resolution.          |
+| `safi_assets_project_root()`                            | Retrieve the root currently in effect.              |
+| `safi_assets_path_resolve(in, out, cap)`                | Absolute passthrough; join relatives onto the root. |
+| `safi_assets_path_to_relative(abs, out, cap)`           | Strip the project-root prefix (for scene save).     |
+| `safi_assets_watch_tick()`                              | Poll mtimes, reload changed slots (ticked by app).  |
 | `safi_assets_load_model(path, shader_dir)`              | Load a glTF with unlit pipeline.                    |
 | `safi_assets_load_model_lit(path, shader_dir)`          | Load a glTF with lit pipeline.                      |
 | `safi_assets_register_model(model)`                     | Register a code-built SafiModel.                    |

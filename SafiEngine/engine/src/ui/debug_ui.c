@@ -1144,9 +1144,29 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
                 }
 
                 safi_inspector_property_color_rgba(ctx, "Color", pr->color, 0.05f);
-                safi_inspector_property_string(ctx, "Texture",
-                                  pr->texture_path,
-                                  (int)sizeof(pr->texture_path));
+
+                /* Texture handle: edit as a project-root-relative string. On
+                 * change, load via the asset registry and assign through
+                 * ecs_set so prim_copy releases the old handle. Drop the
+                 * loader's +1 so the component holds exactly one ref. */
+                char tex_buf[256] = {0};
+                if (safi_handle_valid(pr->texture.id)) {
+                    const char *abs_path = safi_assets_texture_path(pr->texture);
+                    if (abs_path) {
+                        safi_assets_path_to_relative(abs_path, tex_buf, sizeof(tex_buf));
+                    }
+                }
+                char prev[256];
+                strncpy(prev, tex_buf, sizeof(prev));
+                safi_inspector_property_string(ctx, "Texture", tex_buf, (int)sizeof(tex_buf));
+                if (strcmp(prev, tex_buf) != 0) {
+                    SafiTextureHandle new_tex = {0};
+                    if (tex_buf[0]) new_tex = safi_assets_load_texture(tex_buf);
+                    SafiPrimitive updated = *pr;
+                    updated.texture = new_tex;
+                    ecs_set_ptr(world, sel, SafiPrimitive, &updated);
+                    if (new_tex.id) safi_assets_release_texture(new_tex);
+                }
             }
         }
 

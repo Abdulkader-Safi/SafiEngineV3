@@ -623,11 +623,17 @@ void safi_model_destroy(SafiRenderer *r, SafiModel *m) {
     if (m->white_fallback) SDL_ReleaseGPUTexture(r->device, m->white_fallback);
     if (m->base_colors) {
         for (uint32_t i = 0; i < m->material_count; i++) {
-            if (m->base_colors[i])
+            /* Release only textures this model owns. When
+             * `base_color_owned` is NULL the array is treated as
+             * "all owned" — matches every call site before the asset
+             * registry was introduced. */
+            bool owned = m->base_color_owned ? m->base_color_owned[i] : true;
+            if (m->base_colors[i] && owned)
                 SDL_ReleaseGPUTexture(r->device, m->base_colors[i]);
         }
         free(m->base_colors);
     }
+    free(m->base_color_owned);
     free(m->primitives);
     memset(m, 0, sizeof(*m));
 }

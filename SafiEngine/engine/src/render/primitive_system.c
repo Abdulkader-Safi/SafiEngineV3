@@ -8,7 +8,6 @@
 #include "safi/core/log.h"
 
 #include <SDL3/SDL.h>
-#include <stb_image.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +32,7 @@ static uint64_t s_hash_primitive(const SafiPrimitive *p) {
     uint64_t h = s_hash_bytes(&p->shape, sizeof(p->shape), 0);
     h = s_hash_bytes(&p->dims, sizeof(p->dims), h);
     h = s_hash_bytes(p->color, sizeof(p->color), h);
-    h = s_hash_bytes(p->texture_path, strlen(p->texture_path), h);
+    h = s_hash_bytes(&p->texture.id, sizeof(p->texture.id), h);
     if (h == 0) h = 1;
     return h;
 }
@@ -94,26 +93,17 @@ static SafiModelHandle s_build_and_register(SafiRenderer *r,
     }
 
     /* Replace the material's default white base color with the primitive's
-     * color/texture. Textures are NOT loaded through the asset registry here
-     * because the SafiModel will own the texture pointer — if the registry
-     * also held a reference, safi_model_destroy would double-free it. */
-    if (p->texture_path[0] != '\0') {
-        int tw = 0, th = 0, tn = 0;
-        uint8_t *pixels = stbi_load(p->texture_path, &tw, &th, &tn, 4);
-        if (pixels) {
-            safi_material_set_base_color_rgba8(r, &material, pixels,
-                                               (uint32_t)tw, (uint32_t)th);
-            stbi_image_free(pixels);
-            SAFI_LOG_INFO("primitive: loaded texture '%s' (%dx%d)",
-                          p->texture_path, tw, th);
-        } else {
-            SAFI_LOG_WARN("primitive: failed to load '%s' (%s), "
-                          "falling back to solid color",
-                          p->texture_path, stbi_failure_reason());
-        }
-    }
-
-    if (!p->texture_path[0]) {
+     * color/texture. When a texture handle is attached, the material borrows
+     * the registry's GPU texture (no re-upload, no refcount churn, hot-
+     * reload propagates automatically). Otherwise fall back to a 1×1 solid-
+     * color texture owned by the material. */
+    SDL_GPUTexture *registry_tex = safi_handle_valid(p->texture.id)
+        ? safi_assets_resolve_texture(p->texture) : NULL;
+    bool borrowed_tex = false;
+    if (registry_tex) {
+        safi_material_set_base_color_borrowed(r, &material, registry_tex);
+        borrowed_tex = true;
+    } else {
         uint8_t rgba[4] = {
             (uint8_t)(p->color[0] * 255.0f + 0.5f),
             (uint8_t)(p->color[1] * 255.0f + 0.5f),
@@ -152,6 +142,14 @@ static SafiModelHandle s_build_and_register(SafiRenderer *r,
     model.material_count = 1;
     model.base_colors    = (SDL_GPUTexture **)calloc(1, sizeof(SDL_GPUTexture *));
     model.base_colors[0] = material.base_color;
+    /* Preserve the ownership bit from the material: registry-borrowed
+     * textures must not be released by the model destructor. The array is
+     * only allocated when at least one slot is non-owned so the glTF path
+     * (which always owns) pays zero cost. */
+    if (borrowed_tex) {
+        model.base_color_owned    = (bool *)calloc(1, sizeof(bool));
+        model.base_color_owned[0] = false;
+    }
 
     /* Ownership transferred into model — zero the temporaries. */
     memset(&mesh, 0, sizeof(mesh));

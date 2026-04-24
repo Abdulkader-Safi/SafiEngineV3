@@ -24,6 +24,12 @@ typedef struct SafiAppDesc {
     float       fixed_dt;
     /* Max fixed steps per frame (spiral-of-death cap). 0 → default (4). */
     int         fixed_max_steps;
+    /* Root directory against which relative asset paths resolve. Scene
+     * files store paths in this form so they stay portable. NULL → CWD. */
+    const char *project_root;
+    /* Poll-based mtime watcher that reloads changed models/textures.
+     * Defaults on in debug-UI builds (editor) and off in shipping builds. */
+    bool        enable_hot_reload;
 } SafiAppDesc;
 
 typedef struct SafiApp {
@@ -95,6 +101,10 @@ safi_app_init(&app, &(SafiAppDesc){
     .width = 1280, .height = 720,
     .vsync = true,
     .enable_debug_ui = true,
+    /* Scene files store asset paths relative to this directory. */
+    .project_root = SAFI_DEMO_ASSET_DIR,
+    /* Editor auto-enables hot-reload; set explicitly in release builds
+     * if desired. */
 });
 
 ecs_world_t *world = safi_app_world(&app);

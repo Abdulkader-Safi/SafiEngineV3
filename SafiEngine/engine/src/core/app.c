@@ -1,6 +1,7 @@
 #include "safi/core/app.h"
 #include "safi/core/log.h"
 #include "safi/core/time.h"
+#include "safi/ecs/change_bus.h"
 #include "safi/ecs/ecs.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/phases.h"
@@ -34,6 +35,18 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     };
     if (!safi_renderer_init(&app->renderer, &rd)) return false;
     safi_assets_init(&app->renderer);
+
+    /* Register the project root so asset paths stored in scene files stay
+     * portable across machines. NULL → CWD at init time. */
+    if (desc->project_root && desc->project_root[0]) {
+        safi_assets_set_project_root(desc->project_root);
+    } else {
+        char *cwd = SDL_GetCurrentDirectory();
+        if (cwd) {
+            safi_assets_set_project_root(cwd);
+            SDL_free(cwd);
+        }
+    }
 
     app->world = safi_ecs_create();
     if (!app->world) {
@@ -82,6 +95,12 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         SAFI_LOG_WARN("audio init failed; continuing without miniaudio");
     }
 
+    /* Change bus observes every serializable component. Installed after
+     * physics so its two extra components (SafiRigidBody/SafiCollider)
+     * are covered. Undo/redo subscribes later; in the meantime the bus
+     * is dormant with zero subscribers. */
+    safi_change_bus_install(app->world);
+
     /* Engine-owned systems: primitives build their GPU resources on
      * EcsPreStore; render consumes everything on EcsOnStore. */
     safi_primitive_system_init(app->world, app);
@@ -95,6 +114,12 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
         safi_editor_shortcuts_install(app->world);
         safi_editor_gizmo_install(app->world);
     }
+
+    /* Hot-reload defaults on in debug-UI builds (the editor use case) and
+     * off in shipping builds. Callers who want it in a shipping build can
+     * flip the flag explicitly. */
+    app->hot_reload_enabled  = desc->enable_hot_reload || desc->enable_debug_ui;
+    app->watch_accumulator   = 0.0f;
 
     app->running      = true;
     app->last_ticks_ns = SDL_GetTicksNS();
@@ -122,6 +147,7 @@ bool safi_app_tick(SafiApp *app) {
     app->last_ticks_ns = now_ns;
     app->elapsed += dt;
     app->frame_count += 1;
+    safi_change_bus_advance_frame(app->frame_count);
 
     /* ---- Input → ECS ---------------------------------------------------- */
     safi_input_pump(app->world);
@@ -130,6 +156,17 @@ bool safi_app_tick(SafiApp *app) {
 
     /* Audio: GC finished voices + republish listener snapshot. Cheap. */
     safi_audio_update(dt);
+
+    /* Hot-reload poll. ~4 Hz is fast enough that a "save in editor, see
+     * it here" round-trip feels immediate without spamming stat() calls
+     * on every frame. */
+    if (app->hot_reload_enabled) {
+        app->watch_accumulator += dt;
+        if (app->watch_accumulator >= 0.25f) {
+            safi_assets_watch_tick();
+            app->watch_accumulator = 0.0f;
+        }
+    }
 
     /* ---- Stage 1: variable-rate systems --------------------------------- *
      * OnLoad .. PostUpdate. User gameplay, input-driven logic, and (after

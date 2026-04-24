@@ -62,7 +62,15 @@ safi_audio_set_voice_volume(v, 0.5f);
 safi_audio_set_voice_pitch(v, 1.2f);
 safi_audio_set_voice_position(v3, new_pos);   /* 3D voices only */
 if (safi_audio_voice_is_playing(v)) { ... }
-safi_audio_stop(v);
+
+/* Pause preserves playback position; resume picks up where it left off.
+ * The voice handle stays valid across a pause. Use this instead of
+ * stop/restart when the voice should continue mid-track (e.g. gating
+ * ambient music on editor mode). */
+safi_audio_pause(v);
+safi_audio_resume(v);
+
+safi_audio_stop(v);          /* terminate; voice handle becomes invalid */
 ```
 
 ## Buses

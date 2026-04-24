@@ -61,6 +61,29 @@ typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
 
 Tag component — marks which camera the engine renders from. Attach to exactly one entity that also has `SafiCamera`. The engine's render system finds the active camera via `(SafiCamera, SafiActiveCamera)` query.
 
+Singleton by convention: the engine centralises the "at most one holder" policy via `safi_ecs_make_tag_unique(world, ecs_id(SafiActiveCamera), holder)` (declared in `safi/ecs/singleton_tag.h`). `deser_active_camera` calls it automatically, so snapshot restore and scene load can never end up with two active cameras at the same time.
+
+## `SafiEngineOwned`
+
+```c
+typedef struct SafiEngineOwned { char _unused; } SafiEngineOwned;
+```
+
+Tag for engine infrastructure entities that must survive `safi_scene_clear`, stay out of `safi_scene_save` / snapshot, and be ignored by the editor's scene hierarchy panel. The editor fly-cam carries this tag; future additions (culling proxies, shadow-RT holders, debug billboards) should follow the same convention.
+
+## `SafiStableId`
+
+```c
+typedef struct SafiStableId {
+    uint64_t hi;
+    uint64_t lo;
+} SafiStableId;
+```
+
+128-bit random GUID that uniquely identifies an entity across snapshots, scene save/load, undo steps, and future prefab instantiation. Every named entity gets one automatically (via an `EcsOnAdd` observer on `SafiName`), so user code rarely touches the component directly.
+
+Serialised as 32 lowercase hex characters alongside `name` in scene JSON; `safi_scene_restore_snapshot` matches on the id first and falls back to name for entities that predate the format. See `safi/ecs/stable_id.h` for generation helpers (`safi_stable_id_new`, `safi_stable_id_to_string`, `safi_stable_id_from_string`) and the `safi_scene_find_entity_by_stable_id` lookup.
+
 ## `SafiMeshRenderer`
 
 ```c
@@ -86,15 +109,15 @@ typedef struct SafiPrimitive {
         struct { float radius; float height;
                  int   segments; int rings; }                  capsule;
     } dims;
-    float color[4];              // RGBA 0..1; used when texture_path is empty
-    char  texture_path[256];     // empty => solid color
-    /* private: _gpu, _hash — managed by primitive_system */
+    float             color[4];  // RGBA 0..1; used when texture is invalid
+    SafiTextureHandle texture;   // id=0 => solid color from color[]
+    /* private: _model_handle, _hash — managed by primitive_system */
 } SafiPrimitive;
 ```
 
-A procedural mesh with editable shape, dimensions, color, and texture. The engine's `primitive_system` builds the GPU resources on `EcsPreStore` and auto-attaches a `SafiMeshRenderer`; the companion `EcsOnRemove` observer frees them when the component is removed or the entity is destroyed.
+A procedural mesh with editable shape, dimensions, color, and texture. The engine's `primitive_system` builds the GPU resources on `EcsPreStore` and auto-attaches a `SafiMeshRenderer`. Flecs `.copy` / `.move` / `.dtor` hooks on the component keep the refcounts of `_model_handle` and `texture` balanced — including on scene-restore overwrites — so no code path leaks a registry entry.
 
-Changing **any** field — shape, dims, color, texture path — triggers a rebuild on the next frame, which is what makes the MicroUI inspector edits feel live. See the full reference on [Primitive Shapes](../render/primitives).
+`texture` is a [`SafiTextureHandle`](../render/assets), which means primitive textures dedup across entities, participate in hot-reload, and can be assigned by dropping a file onto the Inspector (the inspector edits a relative path string and resolves it through `safi_assets_load_texture`). Changing **any** field — shape, dims, color, texture — triggers a rebuild on the next frame. See the full reference on [Primitive Shapes](../render/primitives).
 
 ## `SafiName`
 

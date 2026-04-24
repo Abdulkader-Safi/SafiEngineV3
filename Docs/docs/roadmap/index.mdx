@@ -5,7 +5,9 @@ description: Current implementation status of every SafiEngine subsystem.
 
 # Feature Roadmap
 
-Status of every engine subsystem as of the latest audit (April 2026). Recently added: **Play/Pause/Stop toolbar** with auto-snapshot on Play and restore on Stop, **translate/rotate/scale gizmo** driven by the toolbar's tool picker, **editor fly-cam** that arbitrates the active-camera tag on Edit ↔ Play, **editor-mode singleton** (`SafiEditorState`) with a dedicated `SafiGamePhase` gate so gameplay pauses in Edit mode, **in-memory scene snapshot/restore** for non-destructive Play→Stop, **JSON scene serialization** (save/load/clear with a component registry), **asset handles** (refcounted, path-cached, hot-reload stub), **procedural primitives** (plane/box/sphere/capsule), and **miniaudio audio** with 2D/3D playback.
+Status of every engine subsystem as of the latest audit (April 2026). Recently added (Tier 1 editor prep, late April): **audio pause/resume**, **component default-init callbacks + construct-by-name** (enables "+ Add Component" in the Inspector), **`SafiEngineOwned` tag + `SafiActiveCamera` singleton enforcement** (fixes double-tag bugs across snapshot restore), **128-bit `SafiStableId` GUID** auto-attached to every named entity and used as the scene-save / snapshot-restore key (renames stay correct, prefabs become cheap), **project-root-relative asset paths** (scenes are now portable across machines), **`SafiPrimitive.texture` → `SafiTextureHandle`** with RAII hooks so primitive textures dedup, hot-reload, and never leak, **file-watcher → hot-reload** that polls mtimes under the project root, **hierarchy helpers** (`safi_entity_set_parent` with cycle rejection, `_detach_from_parent`, `_children`), **change bus** observing every serializable component for M6 undo, and **entity presets** (`safi_preset_*`) for the M5 Create menu.
+
+Before that (mid April): **Play/Pause/Stop toolbar** with auto-snapshot on Play and restore on Stop, **translate/rotate/scale gizmo** driven by the toolbar's tool picker, **editor fly-cam** that arbitrates the active-camera tag on Edit ↔ Play, **editor-mode singleton** (`SafiEditorState`) with a dedicated `SafiGamePhase` gate so gameplay pauses in Edit mode, **in-memory scene snapshot/restore** for non-destructive Play→Stop, **JSON scene serialization** (save/load/clear with a component registry), **asset handles** (refcounted, path-cached), **procedural primitives** (plane/box/sphere/capsule), and **miniaudio audio** with 2D/3D playback.
 
 | Badge           | Meaning                               |
 | --------------- | ------------------------------------- |
@@ -24,14 +26,20 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 | Queries                    | **Implemented** | [Systems](/api/ecs/systems)              |
 | Resources / Singletons     | **Implemented** | [Resources](/api/ecs/resources)          |
 | Add/remove at runtime      | **Implemented** | [ECS Overview](/api/ecs/overview)        |
-| Parent/child hierarchy     | **Partial**     | [ECS Overview](/api/ecs/overview)        |
+| Parent/child hierarchy     | **Implemented** | [ECS Overview](/api/ecs/overview)        |
 | Startup stage              | **WIP**         | [Scheduler](/api/core/scheduler)         |
 | Fixed update stage         | **Implemented** | [Scheduler](/api/core/scheduler)         |
 | Engine-owned render stage  | **Implemented** | [Scheduler](/api/core/scheduler)         |
 | System ordering API        | **Partial**     | [Scheduler](/api/core/scheduler)         |
 | Component registry         | **Implemented** | [Registry](/api/ecs/component_registry)  |
+| Component default-init     | **Implemented** | [Registry](/api/ecs/component_registry)  |
+| Change bus (dirty tracker) | **Implemented** | [Registry](/api/ecs/component_registry)  |
+| Stable entity ID (GUID)    | **Implemented** | [Components](/api/ecs/components)        |
+| Engine-owned entity tag    | **Implemented** | [Components](/api/ecs/components)        |
+| Singleton-tag enforcement  | **Implemented** | [Components](/api/ecs/components)        |
 | Scene serialization (JSON) | **Implemented** | [Scene](/api/scene/scene)                |
 | Scene snapshot / restore   | **Implemented** | [Scene](/api/scene/scene)                |
+| Entity presets             | **Implemented** | [Scene](/api/scene/scene)                |
 | Editor-mode singleton      | **Implemented** | [Editor State](/api/editor/editor_state) |
 | Game phase / pipeline gate | **Implemented** | [Scheduler](/api/core/scheduler)         |
 
@@ -109,7 +117,8 @@ Status of every engine subsystem as of the latest audit (April 2026). Recently a
 | glTF / scene loading          | **Implemented** | [glTF Loader](/api/render/gltf_loader) |
 | Asset handles / IDs           | **Implemented** | [Assets](/api/render/assets)           |
 | Caching / deduplication       | **Implemented** | [Assets](/api/render/assets)           |
-| Hot-reload stub               | **Implemented** | [Assets](/api/render/assets)           |
+| Project-root path resolution  | **Implemented** | [Assets](/api/render/assets)           |
+| Hot-reload (file-watcher)     | **Implemented** | [Assets](/api/render/assets)           |
 | Async / staged loading        | **WIP**         | [Assets](/api/render/assets)           |
 
 ## Input
@@ -180,6 +189,7 @@ The SafiEngine editor is a debug-UI–based scene authoring tool that runs in th
 | Streaming (long files)            | **Implemented** | [Audio](/api/audio/audio) |
 | WAV / FLAC / MP3 decoding         | **Implemented** | [Audio](/api/audio/audio) |
 | Listener pose API                 | **Implemented** | [Audio](/api/audio/audio) |
+| Voice pause / resume              | **Implemented** | [Audio](/api/audio/audio) |
 | Per-bus lowpass / reverb          | **WIP**         | [Audio](/api/audio/audio) |
 | Doppler                           | **WIP**         | [Audio](/api/audio/audio) |
 
@@ -209,8 +219,9 @@ The SafiEngine editor is a debug-UI–based scene authoring tool that runs in th
 2. ~~Scene serialization / load from file~~ ✅ ([Scene](/api/scene/scene))
 3. ~~Editor fly-camera~~ ✅ ([Editor Camera](/api/editor/editor_camera))
 4. ~~Viewport gizmos (translate / rotate / scale)~~ ✅ ([Editor Gizmo](/api/editor/editor_gizmo))
-5. Asset browser panel UI (handle system already shipped — see [Assets](/api/render/assets))
-6. Entity creation menu + component add/remove UI
-7. Undo/redo over Inspector + gizmo edits
-8. Debug physics wireframe rendering
-9. PBR material pipeline (enables richer material previews in the editor)
+5. ~~Tier 1 editor-prep engine work~~ ✅ (stable entity IDs, project-root asset paths, texture handles on primitives, hot-reload, hierarchy helpers, change bus, entity presets, component default-init, audio pause/resume)
+6. Asset browser panel UI (handle system + hot-reload shipped — see [Assets](/api/render/assets))
+7. Entity creation menu + component add/remove UI (presets + default-init shipped — see [Scene](/api/scene/scene), [Registry](/api/ecs/component_registry))
+8. Undo/redo over Inspector + gizmo edits (change bus shipped — see [Registry](/api/ecs/component_registry))
+9. Debug physics wireframe rendering
+10. PBR material pipeline (enables richer material previews in the editor)

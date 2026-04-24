@@ -368,6 +368,16 @@ void safi_audio_stop(SafiVoiceHandle v) {
     slot->sound  = NULL;
     slot->in_use = false;
 }
+void safi_audio_pause(SafiVoiceHandle v) {
+    VoiceSlot *slot = resolve_voice(v);
+    if (!slot || !slot->sound) return;
+    ma_sound_stop(slot->sound);      /* miniaudio's stop = pause; position preserved */
+}
+void safi_audio_resume(SafiVoiceHandle v) {
+    VoiceSlot *slot = resolve_voice(v);
+    if (!slot || !slot->sound) return;
+    ma_sound_start(slot->sound);
+}
 void safi_audio_set_voice_volume(SafiVoiceHandle v, float volume) {
     VoiceSlot *s = resolve_voice(v);
     if (s && s->sound) ma_sound_set_volume(s->sound, volume);

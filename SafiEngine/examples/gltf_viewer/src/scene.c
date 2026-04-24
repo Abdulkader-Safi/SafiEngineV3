@@ -7,12 +7,12 @@
 #include <stdio.h>
 
 bool scene_setup(SafiApp *app) {
-  /* Load the glTF model with all primitives and per-material textures.
-   * Compiled shaders live in SAFI_DEMO_SHADER_DIR (see CMakeLists.txt);
-   * the loader picks .spv or .msl based on the active GPU backend. */
-  char model_path[1024];
-  snprintf(model_path, sizeof(model_path), "%s/models/player.glb",
-           SAFI_DEMO_ASSET_DIR);
+  /* Asset paths are project-root-relative — the root is set to
+   * SAFI_DEMO_ASSET_DIR in main.c, so "models/player.glb" resolves
+   * correctly and scene files stay portable. Compiled shaders still use
+   * SAFI_DEMO_SHADER_DIR since the loader picks .spv or .msl from that
+   * directory based on the active GPU backend. */
+  const char *model_path = "models/player.glb";
 
   g_demo.model_h = safi_assets_load_model_lit(model_path, SAFI_DEMO_SHADER_DIR);
   if (!g_demo.model_h.id) {
@@ -196,14 +196,15 @@ bool scene_setup(SafiApp *app) {
           });
   ecs_set(world, prim_capsule, SafiName, {.value = "Capsule"});
 
-  /* ---- Audio ------------------------------------------------------------ */
+  /* ---- Audio ------------------------------------------------------------ *
+   * miniaudio needs absolute paths for ma_sound_init_from_file — resolve
+   * through the asset registry so the demo still loads audio from
+   * SAFI_DEMO_ASSET_DIR without hard-coding the host path. */
   char audio_path[1024];
-  snprintf(audio_path, sizeof(audio_path), "%s/audio/click.wav",
-           SAFI_DEMO_ASSET_DIR);
+  safi_assets_path_resolve("audio/click.wav", audio_path, sizeof(audio_path));
   g_demo.click_sfx = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_DECODE);
 
-  snprintf(audio_path, sizeof(audio_path), "%s/audio/ambient.wav",
-           SAFI_DEMO_ASSET_DIR);
+  safi_assets_path_resolve("audio/ambient.wav", audio_path, sizeof(audio_path));
   g_demo.ambient_music = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_STREAM);
   /* Playback is driven by music_gate_system — starts on Play, stops on
    * anything else — so no safi_audio_play here. */

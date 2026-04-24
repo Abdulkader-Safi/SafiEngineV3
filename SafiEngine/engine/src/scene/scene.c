@@ -12,6 +12,8 @@
 #include "safi/scene/scene.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/component_registry.h"
+#include "safi/ecs/hierarchy.h"
+#include "safi/ecs/stable_id.h"
 #include "safi/editor/editor_camera.h"
 #include "safi/core/log.h"
 
@@ -53,14 +55,27 @@ static cJSON *serialize_entity(ecs_world_t *world, ecs_entity_t e) {
     const SafiName *name = ecs_get(world, e, SafiName);
     if (!name || !name->value) return NULL;
 
-    /* The editor fly-cam is editor infrastructure, not scene content. Skip
-     * it for both scene save and Play/Stop snapshot — otherwise restoring
-     * its SafiActiveCamera state across a Play/Stop cycle double-tags the
-     * active camera and the fly-cam stops responding in Edit mode. */
+    /* Engine infrastructure (editor fly-cam, etc.) stays out of scene
+     * save and Play/Stop snapshots — otherwise restoring their state
+     * across a Play/Stop cycle double-tags things like SafiActiveCamera
+     * and the fly-cam stops responding in Edit mode. The SafiEditorCamera
+     * check is redundant once SafiEngineOwned is universally applied but
+     * kept as a belt-and-suspenders for migration. */
+    if (ecs_has(world, e, SafiEngineOwned)) return NULL;
     if (ecs_has(world, e, SafiEditorCamera)) return NULL;
 
     cJSON *ej = cJSON_CreateObject();
     cJSON_AddStringToObject(ej, "name", name->value);
+
+    /* Stable id is the authoritative lookup key for snapshot restore and
+     * future prefab references; name is just a label. The OnAdd observer
+     * on SafiName guarantees every serializable entity has one. */
+    const SafiStableId *sid = ecs_get(world, e, SafiStableId);
+    if (sid) {
+        char hex[33];
+        safi_stable_id_to_string(*sid, hex);
+        cJSON_AddStringToObject(ej, "stable_id", hex);
+    }
 
     ecs_entity_t parent = ecs_get_target(world, e, EcsChildOf, 0);
     if (parent) {
@@ -153,7 +168,9 @@ bool safi_scene_save(ecs_world_t *world, const char *path) {
 
 void safi_scene_clear(ecs_world_t *world) {
     /* Collect entity IDs first, then delete — deleting during iteration
-     * invalidates the iterator. */
+     * invalidates the iterator. Entities tagged SafiEngineOwned (editor
+     * fly-cam and other engine infrastructure) are kept so a scene reload
+     * doesn't tear down the tool substrate. */
     ecs_entity_t buf[MAX_ENTITIES];
     int count = 0;
 
@@ -163,8 +180,10 @@ void safi_scene_clear(ecs_world_t *world) {
     });
     ecs_iter_t it = ecs_query_iter(world, q);
     while (ecs_query_next(&it)) {
-        for (int i = 0; i < it.count && count < MAX_ENTITIES; i++)
+        for (int i = 0; i < it.count && count < MAX_ENTITIES; i++) {
+            if (ecs_has(world, it.entities[i], SafiEngineOwned)) continue;
             buf[count++] = it.entities[i];
+        }
     }
     ecs_query_fini(q);
 
@@ -229,6 +248,20 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
         ecs_entity_t e = ecs_new(world);
         const char *pooled = s_pool_string(name);
         ecs_set(world, e, SafiName, { .value = pooled });
+        /* Setting SafiName triggers the auto-stable-id observer, which
+         * generates a fresh id. If the JSON has one, overwrite. Scene
+         * files produced before this change simply keep the auto id. */
+        cJSON *sidj = cJSON_GetObjectItem(ej, "stable_id");
+        if (sidj && cJSON_IsString(sidj)) {
+            SafiStableId parsed;
+            if (safi_stable_id_from_string(sidj->valuestring, &parsed)) {
+                ecs_set_ptr(world, e, SafiStableId, &parsed);
+            } else {
+                SAFI_LOG_WARN("scene: malformed stable_id '%s' on '%s'; "
+                              "using auto-generated id instead",
+                              sidj->valuestring, pooled);
+            }
+        }
 
         map[i].name   = pooled;
         map[i].entity = e;
@@ -247,7 +280,8 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
         }
     }
 
-    /* --- Pass 3: wire parent/child --- */
+    /* --- Pass 3: wire parent/child via the safe wrapper so hand-edited
+     * JSON files can't accidentally close a cycle --- */
     for (int i = 0; i < entity_count; i++) {
         cJSON *ej = cJSON_GetArrayItem(entities, i);
         cJSON *pj = cJSON_GetObjectItem(ej, "parent");
@@ -256,7 +290,10 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
         const char *parent_name = pj->valuestring;
         for (int j = 0; j < entity_count; j++) {
             if (strcmp(map[j].name, parent_name) == 0) {
-                ecs_add_pair(world, map[i].entity, EcsChildOf, map[j].entity);
+                if (!safi_entity_set_parent(world, map[i].entity, map[j].entity)) {
+                    SAFI_LOG_WARN("scene: rejected parent '%s' -> '%s' (cycle?)",
+                                  parent_name, map[i].name);
+                }
                 break;
             }
         }
@@ -360,7 +397,18 @@ bool safi_scene_restore_snapshot(ecs_world_t *world, const cJSON *snapshot) {
         const cJSON *nj = cJSON_GetObjectItem(ej, "name");
         if (!nj || !cJSON_IsString(nj)) continue;
 
-        ecs_entity_t e = safi_scene_find_entity_by_name(world, nj->valuestring);
+        /* Prefer stable_id lookup so renames, duplicated names, and
+         * future multi-scene merges stay correct. Fall back to name for
+         * legacy snapshots that predate the id. */
+        ecs_entity_t e = 0;
+        const cJSON *sidj = cJSON_GetObjectItem(ej, "stable_id");
+        if (sidj && cJSON_IsString(sidj)) {
+            SafiStableId id;
+            if (safi_stable_id_from_string(sidj->valuestring, &id)) {
+                e = safi_scene_find_entity_by_stable_id(world, id);
+            }
+        }
+        if (!e) e = safi_scene_find_entity_by_name(world, nj->valuestring);
         if (!e) {
             SAFI_LOG_WARN("scene: snapshot entity '%s' not present in world; skipped",
                           nj->valuestring);

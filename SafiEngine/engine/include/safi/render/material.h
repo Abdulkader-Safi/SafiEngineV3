@@ -17,6 +17,12 @@ typedef struct SafiMaterial {
     SDL_GPUGraphicsPipeline *pipeline;
     SDL_GPUTexture          *base_color;
     SDL_GPUSampler          *sampler;
+    /* When true, `safi_material_destroy` releases `base_color`. When false,
+     * ownership lives elsewhere (e.g. the asset registry) and the material
+     * only borrows the pointer. Defaults to true for backwards-compat — any
+     * caller that wants to share a registry texture flips it to false via
+     * `safi_material_set_base_color_borrowed`. */
+    bool                     owns_base_color;
 } SafiMaterial;
 
 /* Build the default unlit-textured pipeline. `shader_dir` points at the
@@ -36,11 +42,20 @@ bool safi_material_create_lit(SafiRenderer *r,
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m);
 
 /* Set the base color texture + size in pixels (RGBA8). Replaces any
- * previously bound texture. */
+ * previously bound texture. Material takes ownership of the new GPU
+ * texture and will release it on destroy. */
 bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
                                         SafiMaterial  *m,
                                         const uint8_t *pixels,
                                         uint32_t       width,
                                         uint32_t       height);
+
+/* Point the material at an externally-owned GPU texture (typically one
+ * resolved from the asset registry). Releases any previously-owned texture
+ * before the swap so repeated rebuilds don't leak. Ownership stays with the
+ * caller; the material just borrows the pointer. */
+void safi_material_set_base_color_borrowed(SafiRenderer   *r,
+                                            SafiMaterial   *m,
+                                            SDL_GPUTexture *tex);
 
 #endif /* SAFI_RENDER_MATERIAL_H */

@@ -40,6 +40,11 @@ typedef struct SafiModel {
 
     /* Per-material textures (pipeline + sampler are shared) */
     SDL_GPUTexture         **base_colors;    /* [material_count], NULL = use fallback */
+    /* Parallel flags: when false the model borrows that base_color pointer
+     * (e.g. from the asset registry) and will NOT release it on destroy.
+     * NULL array treated as "all owned" for backwards compat with the
+     * glTF loader path. */
+    bool                    *base_color_owned;
     uint32_t                 material_count;
     SDL_GPUGraphicsPipeline *pipeline;       /* shared unlit pipeline */
     SDL_GPUSampler          *sampler;        /* shared sampler */

@@ -83,6 +83,14 @@ typedef struct SafiCamera {
  * exactly one entity that also has SafiCamera. */
 typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
 
+/* ---- EngineOwned -------------------------------------------------------- *
+ * Tag component — marks an entity as engine infrastructure that should
+ * survive `safi_scene_clear`, stay out of `safi_scene_save`, and be
+ * ignored by editor hierarchy panels. The editor fly-cam is the canonical
+ * user; future additions (culling proxies, shadow RT holders, debug text
+ * billboards) should carry the same tag. */
+typedef struct SafiEngineOwned { char _unused; } SafiEngineOwned;
+
 /* ---- MeshRenderer ------------------------------------------------------- */
 typedef struct SafiMeshRenderer {
     SafiModelHandle model;   /* asset-registry handle; 0 = nothing to draw */
@@ -108,8 +116,8 @@ typedef struct SafiPrimitive {
                  int   segments; int rings; }                  capsule;
     } dims;
 
-    float color[4];              /* RGBA 0..1; used when texture_path is empty */
-    char  texture_path[256];     /* empty => solid color from `color` */
+    float             color[4];  /* RGBA 0..1; used when texture is invalid */
+    SafiTextureHandle texture;   /* id=0 => solid color from `color` */
 
     /* --- private; owned and maintained by primitive_system --- */
     SafiModelHandle _model_handle;
@@ -120,6 +128,19 @@ typedef struct SafiPrimitive {
 typedef struct SafiName {
     const char *value;
 } SafiName;
+
+/* ---- StableId ----------------------------------------------------------- *
+ *
+ * 128-bit random GUID that uniquely identifies an entity across sessions,
+ * snapshots, undo steps, and prefab instantiations. `SafiName` is the
+ * human-readable label in the editor; `SafiStableId` is the foreign key
+ * scene save/load and snapshot restore use to match entities.
+ *
+ * Generated with `safi_stable_id_new`; serialized as 32 hex characters. */
+typedef struct SafiStableId {
+    uint64_t hi;
+    uint64_t lo;
+} SafiStableId;
 
 /* ---- Spin (demo component) --------------------------------------------- */
 typedef struct SafiSpin {
@@ -175,9 +196,11 @@ extern ECS_COMPONENT_DECLARE(SafiTransform);
 extern ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
 extern ECS_COMPONENT_DECLARE(SafiActiveCamera);
+extern ECS_COMPONENT_DECLARE(SafiEngineOwned);
 extern ECS_COMPONENT_DECLARE(SafiMeshRenderer);
 extern ECS_COMPONENT_DECLARE(SafiPrimitive);
 extern ECS_COMPONENT_DECLARE(SafiName);
+extern ECS_COMPONENT_DECLARE(SafiStableId);
 extern ECS_COMPONENT_DECLARE(SafiSpin);
 extern ECS_COMPONENT_DECLARE(SafiTime);
 extern ECS_COMPONENT_DECLARE(SafiInput);

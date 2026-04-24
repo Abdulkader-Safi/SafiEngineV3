@@ -19,9 +19,9 @@ bool safi_scene_load (ecs_world_t *world, const char *path);
 void safi_scene_clear(ecs_world_t *world);
 ```
 
-- **`safi_scene_save`** writes all named entities + their serializable components to `path`.
+- **`safi_scene_save`** writes all named entities + their serializable components to `path`. Entities tagged `SafiEngineOwned` (editor fly-cam, future debug billboards) are excluded.
 - **`safi_scene_load`** clears the scene first, then creates entities from the JSON file.
-- **`safi_scene_clear`** deletes every entity with `SafiName` (leaves singletons untouched).
+- **`safi_scene_clear`** deletes every entity with `SafiName`, except those tagged `SafiEngineOwned` which are editor infrastructure and must survive a reload.
 
 ## In-memory snapshot / restore
 
@@ -34,7 +34,7 @@ bool   safi_scene_restore_snapshot (ecs_world_t *world, const cJSON *snapshot);
 
 - **`safi_scene_snapshot_entities`** serializes a specific set of entities into a heap-owned cJSON object (caller frees with `cJSON_Delete`). Entities without `SafiName` are skipped.
 - **`safi_scene_snapshot_all`** is a shorthand for the full world — same shape, same callbacks as `safi_scene_save`.
-- **`safi_scene_restore_snapshot`** applies a snapshot back onto **existing** entities, matched by `SafiName`. It never creates or deletes entities, so `ecs_entity_t` handles held elsewhere remain valid. Missing names are logged as warnings and skipped; parent/child pairs in the snapshot are ignored (reparenting during Play is out of scope for M1).
+- **`safi_scene_restore_snapshot`** applies a snapshot back onto **existing** entities. Matching is by `SafiStableId` first (the 128-bit GUID every named entity carries), and falls back to `SafiName` for legacy data. It never creates or deletes entities, so `ecs_entity_t` handles held elsewhere remain valid. Missing ids are logged as warnings and skipped; parent/child pairs in the snapshot are ignored (reparenting during Play is out of scope for M1).
 
 This asymmetry is the whole point: `safi_scene_load` is destructive and rebuilds ids (correct for "open a file"), while `safi_scene_restore_snapshot` is non-destructive (correct for "leave Play mode and rewind").
 
@@ -48,13 +48,14 @@ safi_scene_restore_snapshot(world, before_play);
 cJSON_Delete(before_play);
 ```
 
-## Entity lookup by name
+## Entity lookup
 
 ```c
-ecs_entity_t safi_scene_find_entity_by_name(ecs_world_t *world, const char *name);
+ecs_entity_t safi_scene_find_entity_by_name     (ecs_world_t *world, const char *name);
+ecs_entity_t safi_scene_find_entity_by_stable_id(ecs_world_t *world, SafiStableId id);
 ```
 
-Linear scan over every entity carrying `SafiName`. Returns `0` when there is no match. Useful after `safi_scene_load`, which destroys and recreates entities and invalidates any cached ids — look the well-known names back up to refresh your handles.
+Linear scans over every entity carrying `SafiName` / `SafiStableId`. Return `0` when there is no match. Useful after `safi_scene_load`, which destroys and recreates entities and invalidates any cached ids — look the well-known names (or stored ids) back up to refresh your handles. Stable-id lookup is preferred for anything persisted outside the world (undo history, cross-scene references) because it survives renames.
 
 ## Scene file format (v1)
 
@@ -64,6 +65,7 @@ Linear scan over every entity carrying `SafiName`. Returns `0` when there is no 
   "entities": [
     {
       "name": "Model",
+      "stable_id": "a1b2c3d4e5f6789001234567890abcde",
       "parent": null,
       "components": {
         "SafiTransform": {
@@ -79,6 +81,7 @@ Linear scan over every entity carrying `SafiName`. Returns `0` when there is no 
     },
     {
       "name": "FallingBox",
+      "stable_id": "fedcba987654321000112233445566aa",
       "parent": "Model",
       "components": {
         "SafiTransform": { ... },
@@ -92,8 +95,10 @@ Linear scan over every entity carrying `SafiName`. Returns `0` when there is no 
 
 ### Key decisions
 
-- **Parent references** use the parent entity's `SafiName.value` string (not a numeric id). Names must be unique within a scene for parent resolution to work.
-- **`SafiMeshRenderer.model`** is serialized as a path string (`"model_path"`). On load, the path is resolved through the [asset registry](../render/assets) via `safi_assets_load_model_lit`.
+- **Stable IDs are the lookup key.** Every entity carries a 128-bit random `SafiStableId` (auto-attached by an `OnAdd` observer on `SafiName`). Snapshots and scene files serialize it as 32 hex characters, and restore matches on it first — names are just labels and safe to rename.
+- **Parent references** use the parent entity's `SafiName.value` string (not a numeric id) in v1. Load wires parents through `safi_entity_set_parent`, which rejects hand-edited JSON that would close a cycle.
+- **Asset paths are project-root-relative.** `SafiMeshRenderer.model_path` stores e.g. `"models/player.glb"` anchored to `SafiAppDesc.project_root`; the resolver joins on load so absolute paths from older files still load.
+- **`SafiMeshRenderer.model`** and **`SafiPrimitive.texture`** are serialized as path strings. On load, paths resolve through the [asset registry](../render/assets) via `safi_assets_load_model_lit` / `safi_assets_load_texture`; refcounts are handled by component hooks so no code path leaks.
 - **`SafiPrimitive`** serializes shape, dims, color, and texture_path. The engine's `primitive_system` rebuilds the GPU mesh automatically on the next frame.
 - **`SafiGlobalTransform`** is never serialized — it's computed each frame by the transform propagation system. The loader auto-adds it when a `SafiTransform` is deserialized.
 - **Physics private fields** (`_body_id`, `_registered`) are skipped. Jolt re-registers bodies when the components are attached.
@@ -116,8 +121,26 @@ Edit `scene.json` by hand (move an entity, change a color), then press F9 to see
 `safi_scene_load` calls `safi_scene_clear` before loading, so every `ecs_entity_t` held outside the world (e.g. in a demo-state struct or the Inspector's selection) goes stale. Use `safi_scene_find_entity_by_name` to refresh well-known handles, and guard dereferences with `ecs_is_alive`. Snapshot restore does **not** have this problem — ids stay stable.
 :::
 
+## Entity presets
+
+`safi/scene/presets.h` exposes factory helpers the editor's M5 "Create" menu calls (and tests use today). Each preset spawns an entity, attaches `SafiName` + `SafiStableId` + `SafiTransform`/`SafiGlobalTransform`, and invokes per-component `default_init` callbacks so the component's own defaults are the single source of truth.
+
+```c
+#include <safi/scene/presets.h>
+
+ecs_entity_t box   = safi_preset_static_box (world, "Ground", 5.0f, 0.1f, 5.0f);
+ecs_entity_t ball  = safi_preset_dynamic_sphere(world, "Bouncer", 0.5f, 1.0f);
+ecs_entity_t sun   = safi_preset_directional_light(world, "Sun");
+ecs_entity_t cam   = safi_preset_camera(world, "Camera");
+ecs_entity_t mesh  = safi_preset_mesh(world, "Hero", model_h);
+ecs_entity_t prim  = safi_preset_primitive(world, "Capsule",
+                                            SAFI_PRIMITIVE_CAPSULE);
+```
+
+Callers that want to tweak a preset (e.g. position a light) just call `ecs_set` on the returned entity after construction.
+
 ## See also
 
-- [Component Registry](../ecs/component_registry) — how serialize/deserialize callbacks are registered
-- [Asset System](../render/assets) — model path round-tripping
-- [Stock Components](../ecs/components) — what gets serialized
+- [Component Registry](../ecs/component_registry) — how serialize/deserialize/default_init callbacks are registered
+- [Asset System](../render/assets) — model/texture path round-tripping
+- [Stock Components](../ecs/components) — what gets serialized (including `SafiStableId` and `SafiEngineOwned`)

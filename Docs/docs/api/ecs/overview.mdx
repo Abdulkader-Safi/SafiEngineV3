@@ -58,6 +58,22 @@ ecs_entity_t e = ecs_new(world);
 ecs_add(world, e, MyTag);
 ```
 
+## Parent/child hierarchy
+
+flecs models hierarchy via the built-in `EcsChildOf` relationship. SafiEngine wraps that with cycle-rejecting helpers in `safi/ecs/hierarchy.h` so hand-edited scene files, future drag-reparent UI, and tests all go through one code path:
+
+```c
+#include <safi/ecs/hierarchy.h>
+
+bool safi_entity_set_parent      (ecs_world_t *, ecs_entity_t child,
+                                   ecs_entity_t parent);  /* false → cycle */
+void safi_entity_detach_from_parent(ecs_world_t *, ecs_entity_t child);
+int  safi_entity_children        (ecs_world_t *, ecs_entity_t parent,
+                                   ecs_entity_t *out, int cap);
+```
+
+Passing `parent = 0` is equivalent to `safi_entity_detach_from_parent`. The transform propagation system traverses `EcsChildOf` in topological order so a legal reparent mid-frame picks up the correct world matrix the next frame.
+
 ## See also
 
 - [`safi_ecs_create`](./world)

@@ -32,6 +32,14 @@ typedef struct SafiAppDesc {
     float       fixed_dt;
     /* Max fixed steps per frame to prevent spiral-of-death. 0 → default (4). */
     int         fixed_max_steps;
+    /* Root directory against which relative asset paths resolve. Scene
+     * files store paths in this form so they stay portable. NULL → current
+     * working directory at app-init time. */
+    const char *project_root;
+    /* When true, the engine polls file mtimes under the project root and
+     * hot-reloads changed models/textures. Defaults to on in debug-UI
+     * builds (editor), off otherwise. */
+    bool        enable_hot_reload;
 } SafiAppDesc;
 
 typedef struct SafiApp {
@@ -39,6 +47,7 @@ typedef struct SafiApp {
     ecs_world_t  *world;
     bool          running;
     bool          debug_ui_enabled;
+    bool          hot_reload_enabled;
     uint64_t      last_ticks_ns;
     float         elapsed;
     uint64_t      frame_count;
@@ -47,6 +56,8 @@ typedef struct SafiApp {
     float         fixed_accumulator;
     float         fixed_elapsed;
     int           fixed_max_steps;
+    /* Accumulator for the asset-watcher throttle (only ticks ~4×/s). */
+    float         watch_accumulator;
 } SafiApp;
 
 bool safi_app_init(SafiApp *app, const SafiAppDesc *desc);

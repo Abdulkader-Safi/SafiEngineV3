@@ -63,6 +63,10 @@ SafiVoiceHandle safi_audio_play_3d(SafiSoundHandle h, SafiBusHandle bus,
 
 /* ---- Voice control ------------------------------------------------------ */
 void  safi_audio_stop(SafiVoiceHandle v);
+/* Pause keeps the voice alive and its playback position intact; resume picks
+ * up where pause left off. Unlike stop, the voice handle stays valid. */
+void  safi_audio_pause(SafiVoiceHandle v);
+void  safi_audio_resume(SafiVoiceHandle v);
 void  safi_audio_set_voice_volume(SafiVoiceHandle v, float volume);
 void  safi_audio_set_voice_pitch(SafiVoiceHandle v, float pitch);
 void  safi_audio_set_voice_position(SafiVoiceHandle v, const float pos[3]);

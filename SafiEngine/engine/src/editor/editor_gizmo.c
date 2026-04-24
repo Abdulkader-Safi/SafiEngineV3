@@ -16,6 +16,7 @@
 
 #include "safi/editor/editor_gizmo.h"
 #include "safi/editor/editor_state.h"
+#include "safi/ecs/change_bus.h"
 #include "safi/ecs/components.h"
 #include "safi/input/input.h"
 #include "safi/render/camera.h"
@@ -316,6 +317,10 @@ static void drag_begin(ecs_world_t *world, SafiEditorTool tool,
 
     vec3 axis_dir = { AXIS_DIR[axis][0], AXIS_DIR[axis][1], AXIS_DIR[axis][2] };
 
+    /* Open a change-bus group so every per-frame transform write during
+     * the drag coalesces into a single undo step for M6. */
+    safi_change_bus_begin_group();
+
     g_drag.axis        = axis;
     g_drag.tool        = tool;
     g_drag.target      = target;
@@ -493,6 +498,7 @@ static void drag_update(ecs_world_t *world, const SafiCamera *cam,
 
 static void drag_end(void) {
     g_drag.axis = -1;
+    safi_change_bus_end_group();
 }
 
 /* -- Draw helpers -------------------------------------------------------- */

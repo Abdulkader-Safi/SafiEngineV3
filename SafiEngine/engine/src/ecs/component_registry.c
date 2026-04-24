@@ -49,3 +49,16 @@ const SafiComponentInfo *safi_component_registry_find_by_name(const char *name) 
     }
     return NULL;
 }
+
+bool safi_component_registry_construct(ecs_world_t *world,
+                                        ecs_entity_t entity,
+                                        const char *name) {
+    const SafiComponentInfo *ci = safi_component_registry_find_by_name(name);
+    if (!ci || !ci->id) return false;
+    if (ci->default_init) {
+        ci->default_init(world, entity, ci->id);
+    } else {
+        ecs_add_id(world, entity, ci->id);
+    }
+    return true;
+}

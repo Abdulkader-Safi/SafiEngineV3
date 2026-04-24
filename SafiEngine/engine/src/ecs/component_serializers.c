@@ -8,6 +8,7 @@
 #include "component_serializers.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/component_registry.h"
+#include "safi/ecs/singleton_tag.h"
 #include "safi/render/assets.h"
 #include "safi/physics/physics.h"
 #include "safi/ui/inspector_widgets.h"
@@ -154,6 +155,10 @@ static cJSON *ser_active_camera(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
 }
 static void deser_active_camera(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
     (void)j;
+    /* SafiActiveCamera is singleton-by-convention — purge stale holders
+     * before granting the tag so snapshot restore and scene load can never
+     * end up with two active cameras. */
+    safi_ecs_make_tag_unique(w, ecs_id(SafiActiveCamera), e);
     ecs_set(w, e, SafiActiveCamera, {0});
 }
 
@@ -199,8 +204,14 @@ static cJSON *ser_mesh_renderer(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
     const SafiMeshRenderer *mr = ecs_get(w, e, SafiMeshRenderer);
     if (!mr) return NULL;
     cJSON *j = cJSON_CreateObject();
-    const char *path = safi_assets_model_path(mr->model);
-    cJSON_AddStringToObject(j, "model_path", path ? path : "");
+    const char *abs_path = safi_assets_model_path(mr->model);
+    char rel[256];
+    if (abs_path && abs_path[0]) {
+        safi_assets_path_to_relative(abs_path, rel, sizeof(rel));
+        cJSON_AddStringToObject(j, "model_path", rel);
+    } else {
+        cJSON_AddStringToObject(j, "model_path", "");
+    }
     cJSON_AddBoolToObject(j, "visible", mr->visible);
     return j;
 }
@@ -239,18 +250,20 @@ static void insp_mesh_renderer(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) 
 
 /* ==== SafiPrimitive ====================================================== */
 
-/* ---- Lifecycle hooks: SafiPrimitive owns one refcount on _model_handle.
- * primitive_system keeps _model_handle in sync with its rebuild cadence; the
- * hooks here guarantee proper release on component destruction / relocation /
- * overwrite (including the scene-restore path where deser_primitive writes a
- * fresh {0}-handle over the live component). */
+/* ---- Lifecycle hooks: SafiPrimitive owns one refcount on _model_handle
+ * AND one on its optional `texture`. primitive_system keeps _model_handle
+ * in sync with its rebuild cadence; the texture handle is edited by users
+ * (inspector / future drag-drop). Both are refcount-managed together so a
+ * single set/overwrite/destroy is always balanced. */
 
 static void prim_dtor(void *p, int32_t n, const ecs_type_info_t *ti) {
     (void)ti;
     SafiPrimitive *a = (SafiPrimitive *)p;
     for (int32_t i = 0; i < n; i++) {
         if (a[i]._model_handle.id) safi_assets_release_model(a[i]._model_handle);
+        if (a[i].texture.id)       safi_assets_release_texture(a[i].texture);
         a[i]._model_handle = (SafiModelHandle){0};
+        a[i].texture      = (SafiTextureHandle){0};
         a[i]._hash = 0;
     }
 }
@@ -261,8 +274,10 @@ static void prim_copy(void *dst_ptr, const void *src_ptr, int32_t n,
     const SafiPrimitive *s = (const SafiPrimitive *)src_ptr;
     for (int32_t i = 0; i < n; i++) {
         if (d[i]._model_handle.id) safi_assets_release_model(d[i]._model_handle);
+        if (d[i].texture.id)       safi_assets_release_texture(d[i].texture);
         d[i] = s[i];
         if (d[i]._model_handle.id) safi_assets_acquire_model(d[i]._model_handle);
+        if (d[i].texture.id)       safi_assets_acquire_texture(d[i].texture);
     }
 }
 static void prim_move(void *dst_ptr, void *src_ptr, int32_t n,
@@ -272,8 +287,10 @@ static void prim_move(void *dst_ptr, void *src_ptr, int32_t n,
     SafiPrimitive *s = (SafiPrimitive *)src_ptr;
     for (int32_t i = 0; i < n; i++) {
         if (d[i]._model_handle.id) safi_assets_release_model(d[i]._model_handle);
+        if (d[i].texture.id)       safi_assets_release_texture(d[i].texture);
         d[i] = s[i];
         s[i]._model_handle = (SafiModelHandle){0};
+        s[i].texture      = (SafiTextureHandle){0};
         s[i]._hash = 0;
     }
 }
@@ -285,8 +302,16 @@ static cJSON *ser_primitive(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
     cJSON *j = cJSON_CreateObject();
     cJSON_AddNumberToObject(j, "shape", (double)p->shape);
     cJSON_AddItemToObject(j, "color", s_json_vec4(p->color));
-    if (p->texture_path[0])
-        cJSON_AddStringToObject(j, "texture_path", p->texture_path);
+    /* Emit textures as project-root-relative strings so scenes stay
+     * portable. The registry stores absolute paths; we convert here. */
+    if (safi_handle_valid(p->texture.id)) {
+        const char *abs_path = safi_assets_texture_path(p->texture);
+        if (abs_path && abs_path[0]) {
+            char rel[256];
+            safi_assets_path_to_relative(abs_path, rel, sizeof(rel));
+            cJSON_AddStringToObject(j, "texture_path", rel);
+        }
+    }
 
     switch (p->shape) {
     case SAFI_PRIMITIVE_PLANE:
@@ -315,8 +340,8 @@ static void deser_primitive(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
     p.shape = (SafiPrimitiveShape)s_read_int(cJSON_GetObjectItem(j, "shape"), 0);
     s_read_vec4(cJSON_GetObjectItem(j, "color"), p.color);
     const cJSON *tp = cJSON_GetObjectItem(j, "texture_path");
-    if (tp && cJSON_IsString(tp)) {
-        strncpy(p.texture_path, tp->valuestring, sizeof(p.texture_path) - 1);
+    if (tp && cJSON_IsString(tp) && tp->valuestring[0]) {
+        p.texture = safi_assets_load_texture(tp->valuestring);
     }
     switch (p.shape) {
     case SAFI_PRIMITIVE_PLANE:
@@ -338,7 +363,11 @@ static void deser_primitive(ecs_world_t *w, ecs_entity_t e, const cJSON *j) {
         p.dims.capsule.rings    = s_read_int(cJSON_GetObjectItem(j, "rings"), 8);
         break;
     }
+    /* prim_copy hook acquires p.texture into the stored component; drop
+     * the loader's +1 so the refcount net-changes by 1 (the component's
+     * own). Same pattern as deser_mesh_renderer. */
     ecs_set_ptr(w, e, SafiPrimitive, &p);
+    if (p.texture.id) safi_assets_release_texture(p.texture);
 }
 static void insp_primitive(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {
     SafiPrimitive *p = ecs_get_mut(w, e, SafiPrimitive);
@@ -386,8 +415,33 @@ static void insp_primitive(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {
         }
         }
         safi_inspector_property_color_rgba(ctx, "Color", p->color, 0.05f);
-        safi_inspector_property_string(ctx, "Texture", p->texture_path,
-                                       (int)sizeof(p->texture_path));
+
+        /* Texture is stored as a SafiTextureHandle. Expose an editable
+         * path string that mirrors the handle's current path. When the
+         * user changes it, load the new texture via the asset registry
+         * (dedup/hot-reload live here). Prior handle is released by the
+         * .copy hook when the component is re-set below. */
+        char tex_buf[256] = {0};
+        if (safi_handle_valid(p->texture.id)) {
+            const char *abs_path = safi_assets_texture_path(p->texture);
+            if (abs_path) {
+                safi_assets_path_to_relative(abs_path, tex_buf, sizeof(tex_buf));
+            }
+        }
+        char prev[256];
+        strncpy(prev, tex_buf, sizeof(prev));
+        safi_inspector_property_string(ctx, "Texture", tex_buf, (int)sizeof(tex_buf));
+        if (strcmp(prev, tex_buf) != 0) {
+            SafiTextureHandle new_tex = {0};
+            if (tex_buf[0]) new_tex = safi_assets_load_texture(tex_buf);
+            /* Assign through ecs_set so prim_copy releases the old handle
+             * and acquires the new one. Drop this loader acquire to keep
+             * the refcount balanced (the hook already acquired for us). */
+            SafiPrimitive updated = *p;
+            updated.texture = new_tex;
+            ecs_set_ptr(w, e, SafiPrimitive, &updated);
+            if (new_tex.id) safi_assets_release_texture(new_tex);
+        }
     }
 }
 
@@ -678,16 +732,118 @@ static void insp_sky_light(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {
     }
 }
 
+/* ==== Default-init callbacks ============================================ *
+ *
+ * Invoked from `safi_component_registry_construct` — the "+ Add Component"
+ * entry point and the entity-preset helpers. Each function sets the
+ * component to sane non-zero defaults so a freshly-added component renders
+ * something instead of silently doing nothing. */
+
+static void init_transform(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id; SafiTransform t = safi_transform_identity();
+    ecs_set_ptr(w, e, SafiTransform, &t);
+}
+static void init_global_transform(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id; ecs_set(w, e, SafiGlobalTransform, {0});
+}
+static void init_camera(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiCamera c = {0};
+    c.fov_y_radians = 1.0472f;  /* 60° */
+    c.z_near = 0.1f;
+    c.z_far  = 100.0f;
+    c.eye[2] = 3.0f;
+    c.forward[2] = -1.0f;
+    c.up[1]      =  1.0f;
+    ecs_set_ptr(w, e, SafiCamera, &c);
+}
+static void init_mesh_renderer(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiMeshRenderer mr = { .model = (SafiModelHandle){0}, .visible = true };
+    ecs_set_ptr(w, e, SafiMeshRenderer, &mr);
+}
+static void init_primitive(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiPrimitive p = {0};
+    p.shape = SAFI_PRIMITIVE_BOX;
+    p.dims.box.half_extents[0] = 0.5f;
+    p.dims.box.half_extents[1] = 0.5f;
+    p.dims.box.half_extents[2] = 0.5f;
+    p.color[0] = p.color[1] = p.color[2] = p.color[3] = 1.0f;
+    ecs_set_ptr(w, e, SafiPrimitive, &p);
+}
+static void init_spin(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiSpin s = { .axis = {0.0f, 1.0f, 0.0f}, .speed = 1.0f };
+    ecs_set_ptr(w, e, SafiSpin, &s);
+}
+static void init_dir_light(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiDirectionalLight l = {
+        .direction = {-0.3f, -0.8f, -0.5f},
+        .color     = { 1.0f,  1.0f,  1.0f},
+        .intensity = 1.0f,
+    };
+    ecs_set_ptr(w, e, SafiDirectionalLight, &l);
+}
+static void init_point_light(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiPointLight l = {
+        .color = {1.0f, 1.0f, 1.0f}, .intensity = 1.0f, .range = 10.0f,
+    };
+    ecs_set_ptr(w, e, SafiPointLight, &l);
+}
+static void init_spot_light(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiSpotLight l = {
+        .color = {1.0f, 1.0f, 1.0f}, .intensity = 1.0f, .range = 10.0f,
+        .inner_angle = 0.9f, .outer_angle = 0.8f,
+    };
+    ecs_set_ptr(w, e, SafiSpotLight, &l);
+}
+static void init_rect_light(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiRectLight l = {
+        .color = {1.0f, 1.0f, 1.0f}, .intensity = 1.0f,
+        .width = 1.0f, .height = 1.0f,
+    };
+    ecs_set_ptr(w, e, SafiRectLight, &l);
+}
+static void init_sky_light(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiSkyLight l = {
+        .color = {0.25f, 0.28f, 0.35f}, .intensity = 1.0f,
+    };
+    ecs_set_ptr(w, e, SafiSkyLight, &l);
+}
+static void init_rigidbody(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiRigidBody rb = {
+        .type = SAFI_BODY_DYNAMIC, .mass = 1.0f,
+        .friction = 0.5f, .restitution = 0.3f,
+    };
+    ecs_set_ptr(w, e, SafiRigidBody, &rb);
+}
+static void init_collider(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
+    (void)id;
+    SafiCollider c = { .shape = SAFI_COLLIDER_BOX };
+    c.box.half_extents[0] = 0.5f;
+    c.box.half_extents[1] = 0.5f;
+    c.box.half_extents[2] = 0.5f;
+    ecs_set_ptr(w, e, SafiCollider, &c);
+}
+
 /* ==== Registration ======================================================= */
 
-#define REG(TYPE, SER, DESER, INSP, SERIAL)                                   \
+#define REG(TYPE, SER, DESER, INSP, INIT, SERIAL)                             \
     safi_component_registry_register(&(SafiComponentInfo){                     \
-        .id          = ecs_id(TYPE),                                           \
-        .name        = #TYPE,                                                  \
-        .size        = sizeof(TYPE),                                           \
-        .serialize   = SER,                                                    \
-        .deserialize = DESER,                                                  \
-        .draw        = INSP,                                                   \
+        .id           = ecs_id(TYPE),                                          \
+        .name         = #TYPE,                                                 \
+        .size         = sizeof(TYPE),                                          \
+        .serialize    = SER,                                                   \
+        .deserialize  = DESER,                                                 \
+        .draw         = INSP,                                                  \
+        .default_init = INIT,                                                  \
         .serializable = SERIAL,                                                \
     })
 
@@ -696,19 +852,19 @@ void safi_register_builtin_component_info(ecs_world_t *world) {
 
     safi_component_registry_init();
 
-    REG(SafiTransform,        ser_transform,      deser_transform,     insp_transform,      true);
-    REG(SafiGlobalTransform,  NULL,               NULL,                NULL,                 false);
-    REG(SafiCamera,           ser_camera,          deser_camera,        insp_camera,          true);
-    REG(SafiActiveCamera,     ser_active_camera,   deser_active_camera, NULL,                 true);
-    REG(SafiMeshRenderer,     ser_mesh_renderer,   deser_mesh_renderer, insp_mesh_renderer,   true);
-    REG(SafiPrimitive,        ser_primitive,        deser_primitive,     insp_primitive,       true);
-    REG(SafiName,             ser_name,             NULL,                NULL,                 true);
-    REG(SafiSpin,             ser_spin,             deser_spin,          insp_spin,            true);
-    REG(SafiDirectionalLight, ser_dir_light,        deser_dir_light,     insp_dir_light,       true);
-    REG(SafiPointLight,       ser_point_light,      deser_point_light,   insp_point_light,     true);
-    REG(SafiSpotLight,        ser_spot_light,       deser_spot_light,    insp_spot_light,      true);
-    REG(SafiRectLight,        ser_rect_light,       deser_rect_light,    insp_rect_light,      true);
-    REG(SafiSkyLight,         ser_sky_light,        deser_sky_light,     insp_sky_light,       true);
+    REG(SafiTransform,        ser_transform,      deser_transform,     insp_transform,      init_transform,         true);
+    REG(SafiGlobalTransform,  NULL,               NULL,                NULL,                init_global_transform,  false);
+    REG(SafiCamera,           ser_camera,          deser_camera,        insp_camera,         init_camera,            true);
+    REG(SafiActiveCamera,     ser_active_camera,   deser_active_camera, NULL,                NULL,                   true);
+    REG(SafiMeshRenderer,     ser_mesh_renderer,   deser_mesh_renderer, insp_mesh_renderer,  init_mesh_renderer,     true);
+    REG(SafiPrimitive,        ser_primitive,        deser_primitive,     insp_primitive,      init_primitive,         true);
+    REG(SafiName,             ser_name,             NULL,                NULL,                NULL,                   true);
+    REG(SafiSpin,             ser_spin,             deser_spin,          insp_spin,           init_spin,              true);
+    REG(SafiDirectionalLight, ser_dir_light,        deser_dir_light,     insp_dir_light,      init_dir_light,         true);
+    REG(SafiPointLight,       ser_point_light,      deser_point_light,   insp_point_light,    init_point_light,       true);
+    REG(SafiSpotLight,        ser_spot_light,       deser_spot_light,    insp_spot_light,     init_spot_light,        true);
+    REG(SafiRectLight,        ser_rect_light,       deser_rect_light,    insp_rect_light,     init_rect_light,        true);
+    REG(SafiSkyLight,         ser_sky_light,        deser_sky_light,     insp_sky_light,      init_sky_light,         true);
 
     /* Refcount-safe lifecycle hooks for handle-owning components. */
     ecs_set_hooks(world, SafiMeshRenderer, {
@@ -724,8 +880,8 @@ void safi_register_builtin_component_info(ecs_world_t *world) {
 
 /* Called from safi_physics_init after ECS_COMPONENT_DEFINE(SafiRigidBody/SafiCollider). */
 void safi_register_physics_component_info(void) {
-    REG(SafiRigidBody, ser_rigidbody, deser_rigidbody, insp_rigidbody, true);
-    REG(SafiCollider,  ser_collider,  deser_collider,  insp_collider,  true);
+    REG(SafiRigidBody, ser_rigidbody, deser_rigidbody, insp_rigidbody, init_rigidbody, true);
+    REG(SafiCollider,  ser_collider,  deser_collider,  insp_collider,  init_collider,  true);
     SAFI_LOG_INFO("component_registry: registered physics components (%d total)",
                   safi_component_registry_count());
 }

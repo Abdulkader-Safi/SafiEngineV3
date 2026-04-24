@@ -207,9 +207,23 @@ bool safi_material_create_lit(SafiRenderer *r,
 void safi_material_destroy(SafiRenderer *r, SafiMaterial *m) {
     if (!m) return;
     if (m->pipeline)  SDL_ReleaseGPUGraphicsPipeline(r->device, m->pipeline);
-    if (m->base_color) SDL_ReleaseGPUTexture(r->device, m->base_color);
+    if (m->base_color && m->owns_base_color) {
+        SDL_ReleaseGPUTexture(r->device, m->base_color);
+    }
     if (m->sampler)   SDL_ReleaseGPUSampler(r->device, m->sampler);
     memset(m, 0, sizeof(*m));
+}
+
+void safi_material_set_base_color_borrowed(SafiRenderer   *r,
+                                            SafiMaterial   *m,
+                                            SDL_GPUTexture *tex) {
+    if (!m) return;
+    /* Release only if we previously owned — we never own a borrowed tex. */
+    if (m->base_color && m->owns_base_color) {
+        SDL_ReleaseGPUTexture(r->device, m->base_color);
+    }
+    m->base_color       = tex;
+    m->owns_base_color  = false;
 }
 
 bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
@@ -217,10 +231,10 @@ bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
                                         const uint8_t *pixels,
                                         uint32_t       width,
                                         uint32_t       height) {
-    if (m->base_color) {
+    if (m->base_color && m->owns_base_color) {
         SDL_ReleaseGPUTexture(r->device, m->base_color);
-        m->base_color = NULL;
     }
+    m->base_color = NULL;
 
     SDL_GPUTextureCreateInfo ti = {
         .type                 = SDL_GPU_TEXTURETYPE_2D,
@@ -234,6 +248,7 @@ bool safi_material_set_base_color_rgba8(SafiRenderer  *r,
     };
     m->base_color = SDL_CreateGPUTexture(r->device, &ti);
     if (!m->base_color) return false;
+    m->owns_base_color = true;
 
     uint32_t byte_size = width * height * 4u;
     SDL_GPUTransferBufferCreateInfo tbi = {

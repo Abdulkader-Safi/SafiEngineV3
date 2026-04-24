@@ -54,6 +54,28 @@ bool safi_assets_init(SafiRenderer *r);
  * Intended to be the last call before safi_renderer_shutdown. */
 void safi_assets_shutdown(void);
 
+/* ---- Project root + path resolution ------------------------------------ *
+ *
+ * Scene files store asset locations relative to the project root so the
+ * same JSON works across machines and checkout paths. Call `set_root`
+ * once from `safi_app_init`; absolute paths passed to the load APIs keep
+ * working unchanged (they pass through the resolver). */
+
+/* Set the project root directory. NULL clears. Does not validate
+ * existence. */
+void        safi_assets_set_project_root(const char *abs_root);
+const char *safi_assets_project_root(void);
+
+/* If `abs` lives underneath the project root, writes the root-relative
+ * suffix (no leading slash) into `out` and returns true. Otherwise
+ * copies `abs` verbatim and returns false. */
+bool safi_assets_path_to_relative(const char *abs, char *out, size_t cap);
+
+/* Absolute-passthrough: if `in` is already absolute, copy it. Otherwise
+ * join it with the project root. Result is written into `out` (NUL-
+ * terminated). Falls back to `in` if no root is set. */
+void safi_assets_path_resolve(const char *in, char *out, size_t cap);
+
 /* ---- Models (path-cached + refcounted) --------------------------------- */
 
 /* Loads a glTF/GLB with the unlit pipeline. Returns a handle with refcount
@@ -121,5 +143,12 @@ void safi_assets_reload_texture(SafiTextureHandle h);
  * subscriber for now; the editor is expected to be the only consumer. */
 typedef void (*SafiAssetReloadFn)(uint32_t handle_id, void *ctx);
 void safi_assets_on_reload(SafiAssetReloadFn cb, void *ctx);
+
+/* Poll-based hot-reload. Walks every in-use model/texture slot, stats
+ * the underlying file, and calls `safi_assets_reload*` when mtime has
+ * advanced. Cheap enough to run every frame for a handful of assets;
+ * the app ticks it at ~4 Hz via an internal throttle. Safe to call from
+ * the main thread only. */
+void safi_assets_watch_tick(void);
 
 #endif /* SAFI_RENDER_ASSETS_H */

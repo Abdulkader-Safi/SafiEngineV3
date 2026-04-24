@@ -12,10 +12,10 @@
  * the loaded scene doesn't contain are zeroed so the guards below skip
  * their branches instead of dereferencing a dead id. */
 static void refresh_demo_handles(ecs_world_t *world) {
-  g_demo.model_entity  = safi_scene_find_entity_by_name(world, "Model");
+  g_demo.model_entity = safi_scene_find_entity_by_name(world, "Model");
   g_demo.camera_entity = safi_scene_find_entity_by_name(world, "Camera");
-  g_demo.sun_entity    = safi_scene_find_entity_by_name(world, "Sun");
-  g_demo.sky_entity    = safi_scene_find_entity_by_name(world, "Sky");
+  g_demo.sun_entity = safi_scene_find_entity_by_name(world, "Sun");
+  g_demo.sky_entity = safi_scene_find_entity_by_name(world, "Sky");
 }
 
 /* Gameplay controls — runs on SafiGamePhase. Frozen in Edit/Paused by the
@@ -149,22 +149,27 @@ void scene_io_system(ecs_iter_t *it) {
   }
 }
 
-/* Gate the looping ambient music on the current editor mode: playing only
- * while Play is active, stopped in Edit and Paused. Runs on EcsOnUpdate so
- * the transition is checked every frame regardless of mode. */
+/* Gate the looping ambient music on the current editor mode: audible only
+ * while Play is active, paused in Edit/Paused. Runs on EcsOnUpdate so the
+ * transition is checked every frame regardless of mode. The voice is
+ * created lazily on first Play and then pause/resumed across mode changes
+ * so the track continues from where it left off. */
 void music_gate_system(ecs_iter_t *it) {
-  if (!g_demo.ambient_music.id) return;
+  if (!g_demo.ambient_music.id)
+    return;
 
-  bool want_playing =
-      safi_editor_get_mode(it->world) == SAFI_EDITOR_MODE_PLAY;
-  bool is_playing = g_demo.ambient_voice.id != 0;
+  bool want_playing = safi_editor_get_mode(it->world) == SAFI_EDITOR_MODE_PLAY;
+  bool voice_live = g_demo.ambient_voice.id != 0;
 
-  if (want_playing && !is_playing) {
-    g_demo.ambient_voice = safi_audio_play(
-        g_demo.ambient_music, safi_audio_bus_music(),
-        /*volume*/ 0.3f, /*pitch*/ 1.0f, /*looping*/ true);
-  } else if (!want_playing && is_playing) {
-    safi_audio_stop(g_demo.ambient_voice);
-    g_demo.ambient_voice = SAFI_VOICE_INVALID;
+  if (want_playing) {
+    if (!voice_live) {
+      g_demo.ambient_voice =
+          safi_audio_play(g_demo.ambient_music, safi_audio_bus_music(),
+                          /*volume*/ 0.3f, /*pitch*/ 1.0f, /*looping*/ true);
+    } else if (!safi_audio_voice_is_playing(g_demo.ambient_voice)) {
+      safi_audio_resume(g_demo.ambient_voice);
+    }
+  } else if (voice_live && safi_audio_voice_is_playing(g_demo.ambient_voice)) {
+    safi_audio_pause(g_demo.ambient_voice);
   }
 }

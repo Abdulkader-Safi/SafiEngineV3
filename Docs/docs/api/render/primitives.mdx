@@ -45,20 +45,20 @@ typedef struct SafiPrimitive {
                  int   segments; int rings; }                  capsule;
     } dims;
 
-    float color[4];              // RGBA 0..1; used when texture_path is empty
-    char  texture_path[256];     // empty => solid color from `color`
-    /* private: _gpu, _hash — managed by the engine */
+    float             color[4];  // RGBA 0..1; used when texture.id == 0
+    SafiTextureHandle texture;   // 0 => solid color from `color`
+    /* private: _model_handle, _hash — managed by the engine */
 } SafiPrimitive;
 ```
 
 Drop this on any entity that also has `SafiTransform` + `SafiGlobalTransform`. Next frame, the system will:
 
 1. Generate the mesh geometry for the selected shape.
-2. Upload a 1×1 RGBA8 base-color texture from `color`, _or_ decode `texture_path` via `stb_image` if it's set.
+2. If `texture` is a valid [asset handle](./assets), borrow the resolved GPU texture from the registry (no re-upload, no refcount churn). Otherwise upload a 1×1 RGBA8 base-color texture from `color`.
 3. Build a lit pipeline + sampler.
 4. Auto-attach a `SafiMeshRenderer` pointing at the internal model so the standard render pass picks it up.
 
-When the component is removed (or the entity is destroyed), all GPU resources are freed by an `EcsOnRemove` observer — no manual cleanup.
+When the component is removed (or the entity is destroyed), the `.dtor` / `.copy` / `.move` hooks on `SafiPrimitive` release both the internal `_model_handle` and the user-facing `texture` handle — no manual cleanup.
 
 ## Example — spawn a red box
 
@@ -81,16 +81,21 @@ ecs_set(world, e, SafiName, { .value = "Box" });
 ## Example — textured capsule
 
 ```c
+SafiTextureHandle brick = safi_assets_load_texture("textures/brick.png");
+
 ecs_set(world, e, SafiPrimitive, {
-    .shape = SAFI_PRIMITIVE_CAPSULE,
-    .dims  = { .capsule = { .radius = 0.3f, .height = 0.8f,
-                            .segments = 16, .rings = 8 } },
-    .color = {1.0f, 1.0f, 1.0f, 1.0f},
-    .texture_path = "textures/brick.png",
+    .shape   = SAFI_PRIMITIVE_CAPSULE,
+    .dims    = { .capsule = { .radius = 0.3f, .height = 0.8f,
+                              .segments = 16, .rings = 8 } },
+    .color   = {1.0f, 1.0f, 1.0f, 1.0f},
+    .texture = brick,
 });
+
+/* The component's .copy hook acquired brick; drop the loader's +1. */
+safi_assets_release_texture(brick);
 ```
 
-Clear `texture_path` (set it to `""`) to fall back to the solid `color` again.
+Clear the handle (`.texture = {0}`) to fall back to the solid `color` again. The inspector's "Texture" field accepts a project-root-relative path and loads through the same asset registry.
 
 ## Inspector
 

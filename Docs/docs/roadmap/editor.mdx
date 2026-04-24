@@ -33,6 +33,15 @@ The editor is **not a separate application**. It is a set of systems and panels 
 - **Editor keybinds** — F1 toggles Edit ↔ Play, F6 snapshots the world, F7 restores the snapshot, Q/W/E/R picks the tool. Skipped while a MicroUI field has focus or RMB is held. ([Editor Shortcuts](/api/editor/editor_shortcuts))
 - **Editor toolbar** — chromeless MicroUI strip at the top with Play/Pause/Stop + Select/Translate/Rotate/Scale buttons. Auto-snapshots on Play, auto-restores on Stop. ([Editor Toolbar](/api/editor/editor_toolbar))
 - **Translate / Rotate / Scale gizmos** — three-axis handles driven by the Toolbar/Q-W-E-R tool picker; hit-test in screen space, drag mutates `SafiTransform` directly. ([Editor Gizmo](/api/editor/editor_gizmo))
+- **Stable entity IDs** — every named entity carries a 128-bit random `SafiStableId`. Scene save/load and snapshot restore key on the id, so renames, duplicate-named entities, and future prefab references all stay consistent. ([Components](/api/ecs/components))
+- **Project-root-relative asset paths** — `SafiAppDesc.project_root` anchors every relative path a scene file stores (e.g. `"models/player.glb"`). Scenes round-trip across machines without absolute-path baggage. ([Assets](/api/render/assets))
+- **Hot-reload** — the engine polls mtimes under the project root at ~4 Hz and swaps any model or texture whose file changed. Handle ids stay valid across swaps. ([Assets](/api/render/assets))
+- **`SafiPrimitive.texture` handle** — the procedural-primitive component now references a `SafiTextureHandle` instead of a raw path, so textures dedup, hot-reload, and never leak; inspector string edits resolve through the asset registry. ([Primitives](/api/render/primitives))
+- **Component default-init + construct-by-name** — every registered component has a `default_init` callback that sets sensible non-zero defaults; `safi_component_registry_construct(world, e, "SafiPointLight")` is the M5 "+ Add Component" entry point. ([Registry](/api/ecs/component_registry))
+- **Hierarchy helpers** — `safi_entity_set_parent` rejects cycles, `safi_entity_detach_from_parent` drops the `EcsChildOf` edge, `safi_entity_children` enumerates. Scene load uses them, so hand-edited JSON with a cycle gets a warning instead of a wedged propagation pass. ([ECS Overview](/api/ecs/overview))
+- **Change bus** — one flecs `EcsOnSet` observer per serializable component emits `SafiChange` events to subscribers. `safi_change_bus_begin_group` / `_end_group` coalesce gizmo drags into a single undo step; M6 undo reads from this stream.
+- **Entity presets** — `safi_preset_empty/_mesh/_primitive/_camera/_*_light/_static_box/_dynamic_sphere` return a ready-to-edit entity with stable id, transform, and sensible component defaults. The M5 Create menu calls these instead of hand-rolling ecs_set blocks.
+- **Audio pause / resume** — `safi_audio_pause(voice) / _resume(voice)` preserves playback position. Used by the gltf_viewer's music gate so mid-track Stop→Play continues where it left off.
 
 ## Milestones
 
@@ -70,9 +79,11 @@ Save / load what's in the world to disk so work survives a restart.
 
 Scenes must reference assets by a stable id, not by a live pointer.
 
-- **`SafiAssetHandle<T>`** — opaque 64-bit id, one slot per asset type (mesh, material, texture, shader). Handles are resolvable through a central registry that caches loaded assets and deduplicates by path.
-- **Asset browser panel** — grid or tree view of the `assets/` directory. Double-click to preview (mesh in a mini viewport; texture as a swatch). Drag a row onto an Inspector field to assign.
-- **Hot-reload** hook: watch `assets/` with SDL's filesystem notifications; on change, re-upload the GPU resource and patch every handle. Out of scope for MVP; stub the API.
+- **`SafiAssetHandle<T>`** — opaque 64-bit id, one slot per asset type (mesh, material, texture, shader). Handles are resolvable through a central registry that caches loaded assets and deduplicates by path. ✅ shipped ([Assets](/api/render/assets))
+- **Project-root-relative paths** — scene files store paths like `"models/player.glb"` anchored to `SafiAppDesc.project_root`. ✅ shipped
+- **Texture handle on primitives** — `SafiPrimitive.texture` is a `SafiTextureHandle`, not a string; drag-drop from the asset browser (UI TBD) is a one-line assignment. ✅ shipped
+- **Hot-reload** hook — poll-based mtime watcher calls `safi_assets_reload*` at ~4 Hz. Handle ids stay valid across reloads. ✅ shipped
+- **Asset browser panel** — grid or tree view of the `assets/` directory. Double-click to preview (mesh in a mini viewport; texture as a swatch). Drag a row onto an Inspector field to assign. (UI TBD)
 
 ### M4 — Viewport gizmos & editor camera — ✅ **shipped**
 
@@ -97,13 +108,13 @@ Direct manipulation in the 3D viewport — the part that makes the editor feel l
 Authoring entities from scratch without C code.
 
 - **Create menu** (`+` button in the Scene panel or right-click context menu):
-  - `Empty` — just `SafiTransform + SafiName`.
-  - `Mesh` — empty + `SafiMeshRenderer` (prompts for a mesh asset).
-  - `Light → Directional / Point / Spot / Rect / Sky`.
-  - `Camera` — `SafiTransform + SafiCamera`.
-  - `Physics Body → Static Box / Dynamic Sphere / …` — transform + rigidbody + collider presets.
-- **Component panel** — each Inspector component gets an `×` in its header to remove it; bottom of Inspector has `+ Add Component…` that opens a searchable list of every registered component.
-- **Parent assignment** — drag an entity onto another in the Scene panel to re-parent; drag to the root area to unparent.
+  - `Empty` — just `SafiTransform + SafiName` + auto `SafiStableId`. ✅ `safi_preset_empty`
+  - `Mesh` — empty + `SafiMeshRenderer` (prompts for a mesh asset). ✅ `safi_preset_mesh`
+  - `Light → Directional / Point / Spot / Rect / Sky`. ✅ `safi_preset_*_light`
+  - `Camera` — `SafiTransform + SafiCamera`. ✅ `safi_preset_camera`
+  - `Physics Body → Static Box / Dynamic Sphere / …` — transform + rigidbody + collider presets. ✅ `safi_preset_static_box` / `_dynamic_sphere`
+- **Component panel** — each Inspector component gets an `×` in its header to remove it; bottom of Inspector has `+ Add Component…` that opens a searchable list of every registered component. ✅ `safi_component_registry_construct(world, e, name)` handles construction (UI TBD)
+- **Parent assignment** — drag an entity onto another in the Scene panel to re-parent; drag to the root area to unparent. ✅ `safi_entity_set_parent` / `_detach_from_parent` handle the mutation (UI TBD)
 
 ### M6 — Undo / redo
 
@@ -112,6 +123,11 @@ Snapshot-based, scoped to a small window of recent changes.
 - Every Inspector edit, gizmo drag, entity create/delete, and parent change pushes a snapshot of the affected entities onto a bounded ring buffer (say 64 steps).
 - `Cmd/Ctrl-Z` / `Cmd/Ctrl-Shift-Z` pop/push between stacks.
 - Gizmo drags coalesce — one snapshot at drag-start, one at drag-end, nothing in between.
+
+**Backing APIs** (shipped, waiting on the undo ring + keybinds):
+- `SafiStableId` guarantees entity identity across snapshot restore even after a rename.
+- Change bus observes every serializable component; gizmo drags already wrap in `safi_change_bus_begin_group / _end_group` so the coalescer has its signal.
+- `safi_scene_snapshot_entities(world, ids, count)` serializes an arbitrary slice of the world for per-step snapshots.
 
 ### M7 — Prefabs / multi-select / polish
 
