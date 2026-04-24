@@ -20,6 +20,7 @@ typedef struct DemoState {
   /* Audio */
   SafiSoundHandle click_sfx;
   SafiSoundHandle ambient_music;
+  SafiVoiceHandle ambient_voice;   /* non-zero while ambient music is playing */
 } DemoState;
 
 extern DemoState g_demo;

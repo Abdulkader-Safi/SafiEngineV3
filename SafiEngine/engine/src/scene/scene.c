@@ -12,6 +12,7 @@
 #include "safi/scene/scene.h"
 #include "safi/ecs/components.h"
 #include "safi/ecs/component_registry.h"
+#include "safi/editor/editor_camera.h"
 #include "safi/core/log.h"
 
 #include <cJSON.h>
@@ -51,6 +52,12 @@ static void s_pool_free(void) {
 static cJSON *serialize_entity(ecs_world_t *world, ecs_entity_t e) {
     const SafiName *name = ecs_get(world, e, SafiName);
     if (!name || !name->value) return NULL;
+
+    /* The editor fly-cam is editor infrastructure, not scene content. Skip
+     * it for both scene save and Play/Stop snapshot — otherwise restoring
+     * its SafiActiveCamera state across a Play/Stop cycle double-tags the
+     * active camera and the fly-cam stops responding in Edit mode. */
+    if (ecs_has(world, e, SafiEditorCamera)) return NULL;
 
     cJSON *ej = cJSON_CreateObject();
     cJSON_AddStringToObject(ej, "name", name->value);

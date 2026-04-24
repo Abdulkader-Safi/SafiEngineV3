@@ -159,6 +159,41 @@ static void deser_active_camera(ecs_world_t *w, ecs_entity_t e, const cJSON *j) 
 
 /* ==== SafiMeshRenderer =================================================== */
 
+/* ---- Lifecycle hooks: SafiMeshRenderer owns one refcount on .model. ----
+ * Wired via ecs_set_hooks below so every ecs_set / relocation / destruction
+ * is refcount-correct without per-callsite acquire/release discipline. */
+
+static void mr_dtor(void *p, int32_t n, const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiMeshRenderer *a = (SafiMeshRenderer *)p;
+    for (int32_t i = 0; i < n; i++) {
+        if (a[i].model.id) safi_assets_release_model(a[i].model);
+        a[i].model = (SafiModelHandle){0};
+    }
+}
+static void mr_copy(void *dst_ptr, const void *src_ptr, int32_t n,
+                    const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiMeshRenderer *d = (SafiMeshRenderer *)dst_ptr;
+    const SafiMeshRenderer *s = (const SafiMeshRenderer *)src_ptr;
+    for (int32_t i = 0; i < n; i++) {
+        if (d[i].model.id) safi_assets_release_model(d[i].model);
+        d[i] = s[i];
+        if (d[i].model.id) safi_assets_acquire_model(d[i].model);
+    }
+}
+static void mr_move(void *dst_ptr, void *src_ptr, int32_t n,
+                    const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiMeshRenderer *d = (SafiMeshRenderer *)dst_ptr;
+    SafiMeshRenderer *s = (SafiMeshRenderer *)src_ptr;
+    for (int32_t i = 0; i < n; i++) {
+        if (d[i].model.id) safi_assets_release_model(d[i].model);
+        d[i] = s[i];
+        s[i].model = (SafiModelHandle){0};
+    }
+}
+
 static cJSON *ser_mesh_renderer(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
     (void)id;
     const SafiMeshRenderer *mr = ecs_get(w, e, SafiMeshRenderer);
@@ -183,7 +218,11 @@ static void deser_mesh_renderer(ecs_world_t *w, ecs_entity_t e, const cJSON *j) 
         mr.model = safi_assets_load_model_lit(mp->valuestring, "shaders");
 #endif
     }
+    /* .copy hook on SafiMeshRenderer releases the previous handle (restore
+     * path) and acquires mr.model. Then drop the loader's own +1 so the net
+     * refcount change across a Play/Stop restore is zero. */
     ecs_set_ptr(w, e, SafiMeshRenderer, &mr);
+    if (mr.model.id) safi_assets_release_model(mr.model);
 }
 static void insp_mesh_renderer(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) {
     SafiMeshRenderer *mr = ecs_get_mut(w, e, SafiMeshRenderer);
@@ -199,6 +238,45 @@ static void insp_mesh_renderer(mu_Context *ctx, ecs_world_t *w, ecs_entity_t e) 
 }
 
 /* ==== SafiPrimitive ====================================================== */
+
+/* ---- Lifecycle hooks: SafiPrimitive owns one refcount on _model_handle.
+ * primitive_system keeps _model_handle in sync with its rebuild cadence; the
+ * hooks here guarantee proper release on component destruction / relocation /
+ * overwrite (including the scene-restore path where deser_primitive writes a
+ * fresh {0}-handle over the live component). */
+
+static void prim_dtor(void *p, int32_t n, const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiPrimitive *a = (SafiPrimitive *)p;
+    for (int32_t i = 0; i < n; i++) {
+        if (a[i]._model_handle.id) safi_assets_release_model(a[i]._model_handle);
+        a[i]._model_handle = (SafiModelHandle){0};
+        a[i]._hash = 0;
+    }
+}
+static void prim_copy(void *dst_ptr, const void *src_ptr, int32_t n,
+                      const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiPrimitive *d = (SafiPrimitive *)dst_ptr;
+    const SafiPrimitive *s = (const SafiPrimitive *)src_ptr;
+    for (int32_t i = 0; i < n; i++) {
+        if (d[i]._model_handle.id) safi_assets_release_model(d[i]._model_handle);
+        d[i] = s[i];
+        if (d[i]._model_handle.id) safi_assets_acquire_model(d[i]._model_handle);
+    }
+}
+static void prim_move(void *dst_ptr, void *src_ptr, int32_t n,
+                      const ecs_type_info_t *ti) {
+    (void)ti;
+    SafiPrimitive *d = (SafiPrimitive *)dst_ptr;
+    SafiPrimitive *s = (SafiPrimitive *)src_ptr;
+    for (int32_t i = 0; i < n; i++) {
+        if (d[i]._model_handle.id) safi_assets_release_model(d[i]._model_handle);
+        d[i] = s[i];
+        s[i]._model_handle = (SafiModelHandle){0};
+        s[i]._hash = 0;
+    }
+}
 
 static cJSON *ser_primitive(ecs_world_t *w, ecs_entity_t e, ecs_id_t id) {
     (void)id;
@@ -631,6 +709,15 @@ void safi_register_builtin_component_info(ecs_world_t *world) {
     REG(SafiSpotLight,        ser_spot_light,       deser_spot_light,    insp_spot_light,      true);
     REG(SafiRectLight,        ser_rect_light,       deser_rect_light,    insp_rect_light,      true);
     REG(SafiSkyLight,         ser_sky_light,        deser_sky_light,     insp_sky_light,       true);
+
+    /* Refcount-safe lifecycle hooks for handle-owning components. */
+    ecs_set_hooks(world, SafiMeshRenderer, {
+        .dtor = mr_dtor, .copy = mr_copy, .move = mr_move,
+    });
+    ecs_set_hooks(world, SafiPrimitive, {
+        .dtor = prim_dtor, .copy = prim_copy, .move = prim_move,
+    });
+
     SAFI_LOG_INFO("component_registry: registered %d components (physics deferred)",
                   safi_component_registry_count());
 }

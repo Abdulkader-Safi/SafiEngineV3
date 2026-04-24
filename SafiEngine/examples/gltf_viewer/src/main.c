@@ -69,6 +69,13 @@ int main(int argc, char **argv) {
                              .add = ecs_ids(ecs_dependson(EcsOnUpdate))}),
                  .callback = scene_io_system,
              });
+  ecs_system(world,
+             {
+                 .entity = ecs_entity(
+                     world, {.name = "music_gate_system",
+                             .add = ecs_ids(ecs_dependson(EcsOnUpdate))}),
+                 .callback = music_gate_system,
+             });
 
   safi_app_run(&app);
 

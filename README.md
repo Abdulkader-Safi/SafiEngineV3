@@ -2,7 +2,7 @@
 
 A pure-C game engine and its documentation site, kept in one monorepo.
 
-![img](./img/ScreenShot.png)
+![img](./img/ScreenShot2.png)
 
 ```
 SafiEngineV3/

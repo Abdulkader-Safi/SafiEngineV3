@@ -193,34 +193,23 @@ static void primitive_system(ecs_iter_t *it) {
             p->_hash = h;
 
             ecs_entity_t e = qit.entities[i];
-            if (!ecs_has(world, e, SafiMeshRenderer)) {
-                ecs_set(world, e, SafiMeshRenderer,
-                        { .model = mh, .visible = true });
-            } else {
-                SafiMeshRenderer *existing =
-                    ecs_get_mut(world, e, SafiMeshRenderer);
-                existing->model   = mh;
-                existing->visible = true;
-            }
+            /* ecs_set triggers the SafiMeshRenderer .copy hook which releases
+             * any previous handle and acquires mh. After this call the model
+             * is held by two refs: SafiPrimitive._model_handle owns the
+             * register_model's initial +1, and SafiMeshRenderer.model owns
+             * the hook's acquire. Both components release on destruction. */
+            ecs_set(world, e, SafiMeshRenderer,
+                    { .model = mh, .visible = true });
         }
     }
     ecs_query_fini(q);
 }
 
-/* ---- on_remove observer ------------------------------------------------- */
-
-static void primitive_on_remove(ecs_iter_t *it) {
-    SafiPrimitive *prims = ecs_field(it, SafiPrimitive, 0);
-    for (int i = 0; i < it->count; i++) {
-        if (prims[i]._model_handle.id) {
-            safi_assets_release_model(prims[i]._model_handle);
-            prims[i]._model_handle = (SafiModelHandle){0};
-            prims[i]._hash = 0;
-        }
-    }
-}
-
-/* ---- Init --------------------------------------------------------------- */
+/* ---- Init --------------------------------------------------------------- *
+ *
+ * Handle release on component removal / entity destruction is handled by the
+ * SafiPrimitive .dtor hook registered in component_serializers.c, so no
+ * EcsOnRemove observer is needed here. */
 
 void safi_primitive_system_init(ecs_world_t *world, SafiApp *app) {
     ecs_system(world, {
@@ -230,12 +219,5 @@ void safi_primitive_system_init(ecs_world_t *world, SafiApp *app) {
         }),
         .callback = primitive_system,
         .ctx      = app,
-    });
-
-    ecs_observer(world, {
-        .query.terms = {{ .id = ecs_id(SafiPrimitive) }},
-        .events      = { EcsOnRemove },
-        .callback    = primitive_on_remove,
-        .ctx         = app,
     });
 }

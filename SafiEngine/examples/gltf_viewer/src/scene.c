@@ -96,6 +96,12 @@ bool scene_setup(SafiApp *app) {
           });
   ecs_set(world, falling, SafiName, {.value = "FallingBox"});
 
+  /* Both SafiMeshRenderer components have hook-acquired their own refs on
+   * the model. Drop the load_model_lit's +1 so the asset is solely owned
+   * by the components and freed when the last entity is destroyed. */
+  safi_assets_release_model(g_demo.model_h);
+  g_demo.model_h = (SafiModelHandle){0};
+
   /* Static ground plane — thin box. */
   ecs_entity_t ground = ecs_new(world);
   ecs_set(world, ground, SafiTransform,
@@ -199,11 +205,8 @@ bool scene_setup(SafiApp *app) {
   snprintf(audio_path, sizeof(audio_path), "%s/audio/ambient.wav",
            SAFI_DEMO_ASSET_DIR);
   g_demo.ambient_music = safi_audio_load(audio_path, SAFI_AUDIO_LOAD_STREAM);
-  if (g_demo.ambient_music.id) {
-    safi_audio_play(g_demo.ambient_music, safi_audio_bus_music(),
-                    /*volume*/ 0.3f, /*pitch*/ 1.0f, /*looping*/ true);
-    SAFI_LOG_INFO("audio: ambient music looping on music bus at 30%%");
-  }
+  /* Playback is driven by music_gate_system — starts on Play, stops on
+   * anything else — so no safi_audio_play here. */
 
   return true;
 }

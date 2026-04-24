@@ -15,7 +15,8 @@
 
 #include <safi/safi.h>
 
-void control_system (ecs_iter_t *it);
-void scene_io_system(ecs_iter_t *it);
+void control_system   (ecs_iter_t *it);
+void scene_io_system  (ecs_iter_t *it);
+void music_gate_system(ecs_iter_t *it);
 
 #endif /* GLTF_VIEWER_CONTROL_SYSTEM_H */

@@ -148,3 +148,23 @@ void scene_io_system(ecs_iter_t *it) {
     }
   }
 }
+
+/* Gate the looping ambient music on the current editor mode: playing only
+ * while Play is active, stopped in Edit and Paused. Runs on EcsOnUpdate so
+ * the transition is checked every frame regardless of mode. */
+void music_gate_system(ecs_iter_t *it) {
+  if (!g_demo.ambient_music.id) return;
+
+  bool want_playing =
+      safi_editor_get_mode(it->world) == SAFI_EDITOR_MODE_PLAY;
+  bool is_playing = g_demo.ambient_voice.id != 0;
+
+  if (want_playing && !is_playing) {
+    g_demo.ambient_voice = safi_audio_play(
+        g_demo.ambient_music, safi_audio_bus_music(),
+        /*volume*/ 0.3f, /*pitch*/ 1.0f, /*looping*/ true);
+  } else if (!want_playing && is_playing) {
+    safi_audio_stop(g_demo.ambient_voice);
+    g_demo.ambient_voice = SAFI_VOICE_INVALID;
+  }
+}

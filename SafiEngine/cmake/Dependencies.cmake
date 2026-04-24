@@ -135,7 +135,7 @@ target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 # provides its own SDL_gpu batched-quad backend in engine/src/ui/debug_ui.c.
 # ---------------------------------------------------------------------------
 FetchContent_Declare(microui
-    GIT_REPOSITORY https://github.com/rxi/microui.git
+    GIT_REPOSITORY https://github.com/Abdulkader-Safi/microui.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
 )
