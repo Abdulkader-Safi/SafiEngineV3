@@ -58,6 +58,27 @@ void safi_renderer_end_main_pass(SafiRenderer *r);
 /* Submit the command buffer. */
 void safi_renderer_end_frame(SafiRenderer *r);
 
+/* Open a render pass into caller-provided color (and optional depth)
+ * textures. `color` must be created with COLOR_TARGET usage; `depth` (when
+ * non-NULL) must be created with DEPTH_STENCIL_TARGET usage and match the
+ * width/height. The pass clears color to a neutral grey and clears depth
+ * (when present) to 1.0.
+ *
+ * Must be called between begin_frame and end_frame, and only when no other
+ * pass is open (SDL_gpu forbids nested passes). Sets r->pass so the model /
+ * gizmo draw helpers route into this pass; pair with end_offscreen_pass.
+ *
+ * Use case: thumbnails, mesh-preview panes, anything that needs to render
+ * into a sampler-readable texture for later use within the same frame. */
+void safi_renderer_begin_offscreen_pass(SafiRenderer   *r,
+                                        SDL_GPUTexture *color,
+                                        SDL_GPUTexture *depth,
+                                        uint32_t        width,
+                                        uint32_t        height);
+
+/* Close an offscreen pass opened by begin_offscreen_pass. */
+void safi_renderer_end_offscreen_pass(SafiRenderer *r);
+
 const char *safi_renderer_backend_name(const SafiRenderer *r);
 
 #endif /* SAFI_RENDER_RENDERER_H */

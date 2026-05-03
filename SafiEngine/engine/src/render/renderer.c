@@ -156,6 +156,52 @@ void safi_renderer_end_main_pass(SafiRenderer *r) {
     r->pass = NULL;
 }
 
+void safi_renderer_begin_offscreen_pass(SafiRenderer   *r,
+                                        SDL_GPUTexture *color,
+                                        SDL_GPUTexture *depth,
+                                        uint32_t        width,
+                                        uint32_t        height) {
+    if (!r->frame_active || r->pass || !color) return;
+
+    SDL_GPUColorTargetInfo color_target = {
+        .texture     = color,
+        .clear_color = (SDL_FColor){ 0.05f, 0.06f, 0.08f, 1.0f },
+        .load_op     = SDL_GPU_LOADOP_CLEAR,
+        .store_op    = SDL_GPU_STOREOP_STORE,
+    };
+
+    if (depth) {
+        SDL_GPUDepthStencilTargetInfo depth_target = {
+            .texture          = depth,
+            .clear_depth      = 1.0f,
+            .load_op          = SDL_GPU_LOADOP_CLEAR,
+            .store_op         = SDL_GPU_STOREOP_DONT_CARE,
+            .stencil_load_op  = SDL_GPU_LOADOP_DONT_CARE,
+            .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE,
+        };
+        r->pass = SDL_BeginGPURenderPass(r->cmd, &color_target, 1, &depth_target);
+    } else {
+        r->pass = SDL_BeginGPURenderPass(r->cmd, &color_target, 1, NULL);
+    }
+
+    if (r->pass) {
+        SDL_GPUViewport vp = {
+            .x = 0.0f, .y = 0.0f,
+            .w = (float)width, .h = (float)height,
+            .min_depth = 0.0f, .max_depth = 1.0f,
+        };
+        SDL_SetGPUViewport(r->pass, &vp);
+        SDL_Rect full = { 0, 0, (int)width, (int)height };
+        SDL_SetGPUScissor(r->pass, &full);
+    }
+}
+
+void safi_renderer_end_offscreen_pass(SafiRenderer *r) {
+    if (!r->pass) return;
+    SDL_EndGPURenderPass(r->pass);
+    r->pass = NULL;
+}
+
 void safi_renderer_end_frame(SafiRenderer *r) {
     if (!r->frame_active) return;
     if (r->pass) {

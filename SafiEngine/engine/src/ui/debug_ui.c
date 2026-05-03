@@ -136,6 +136,30 @@ static struct {
         mu_Id              result_for_id;
         int                result_index;
     } dropdown;
+
+    /* Free-floating popup pickers (popup_picker / context_menu). At most
+     * one is open at a time; multiple call-sites coexist by name. */
+    struct {
+        mu_Id              key;           /* 0 = closed */
+        char               name[32];
+        const char *const *items;
+        int                count;
+        bool               at_mouse;      /* false = drop-below ctx->last_rect */
+        mu_Vec2            mouse_anchor;
+        mu_Rect            rect_anchor;
+        bool               just_opened;   /* first frame: position the container */
+
+        bool               has_result;
+        mu_Id              result_for_key;
+        int                result_index;
+    } popup;
+
+    /* Active drag-drop payload. */
+    struct {
+        bool     active;
+        char     tag[32];
+        uint32_t value;
+    } drag;
 } S;
 
 /* -- font callbacks for MicroUI ------------------------------------------- */
@@ -880,6 +904,152 @@ static void s_draw_open_dropdown(mu_Context *ctx) {
     }
 }
 
+/* ---- Free-floating popup pickers ---------------------------------------- *
+ * Shared between safi_ui_popup_picker and safi_ui_context_menu. Caller
+ * supplies a unique `name` and a one-shot `open_trigger`; we capture the
+ * anchor (last_rect or mouse_pos) the same frame, then render the popup
+ * outside any parent window so it isn't clipped. */
+static int s_popup_open_or_query(mu_Context *ctx,
+                                 const char *name,
+                                 bool        open_trigger,
+                                 const char *const *items,
+                                 int         item_count,
+                                 bool        at_mouse) {
+    mu_Id key = mu_get_id(ctx, name, (int)strlen(name));
+
+    if (open_trigger && S.popup.key != key) {
+        S.popup.key          = key;
+        size_t n = strlen(name);
+        if (n >= sizeof(S.popup.name)) n = sizeof(S.popup.name) - 1;
+        memcpy(S.popup.name, name, n);
+        S.popup.name[n]      = 0;
+        S.popup.items        = items;
+        S.popup.count        = item_count;
+        S.popup.at_mouse     = at_mouse;
+        S.popup.mouse_anchor = ctx->mouse_pos;
+        S.popup.rect_anchor  = ctx->last_rect;
+        S.popup.just_opened  = true;
+        S.popup.has_result   = false;
+    }
+
+    if (S.popup.has_result && S.popup.result_for_key == key) {
+        int idx = S.popup.result_index;
+        S.popup.has_result    = false;
+        S.popup.result_for_key = 0;
+        return idx;
+    }
+    return -1;
+}
+
+int safi_ui_popup_picker(mu_Context *ctx, const char *name, bool open_trigger,
+                         const char *const *items, int item_count) {
+    return s_popup_open_or_query(ctx, name, open_trigger, items, item_count,
+                                 /*at_mouse=*/false);
+}
+
+int safi_ui_context_menu(mu_Context *ctx, const char *name, bool open_trigger,
+                         const char *const *items, int item_count) {
+    return s_popup_open_or_query(ctx, name, open_trigger, items, item_count,
+                                 /*at_mouse=*/true);
+}
+
+/* Renders the currently-open free popup (picker or context menu). Called
+ * once per frame after the inspector closes, alongside s_draw_open_dropdown. */
+static void s_draw_open_popup(mu_Context *ctx) {
+    if (!S.popup.key) return;
+
+    const char *name = S.popup.name;
+    mu_Container *cnt = mu_get_container(ctx, name);
+    if (!cnt) return;
+
+    if (S.popup.just_opened) {
+        int row_h    = 24;
+        int pad      = 12;
+        int desired_h = S.popup.count * row_h + pad;
+        if (desired_h > 240) desired_h = 240;
+
+        if (S.popup.at_mouse) {
+            cnt->rect.x = S.popup.mouse_anchor.x;
+            cnt->rect.y = S.popup.mouse_anchor.y;
+            cnt->rect.w = 160;
+        } else {
+            cnt->rect.x = S.popup.rect_anchor.x;
+            cnt->rect.y = S.popup.rect_anchor.y + S.popup.rect_anchor.h;
+            cnt->rect.w = S.popup.rect_anchor.w > 120 ? S.popup.rect_anchor.w
+                                                     : 160;
+        }
+        cnt->rect.h = desired_h;
+        cnt->open   = 1;
+        mu_bring_to_front(ctx, cnt);
+        ctx->hover_root = ctx->next_hover_root = cnt;
+        S.popup.just_opened = false;
+    }
+
+    int opt = MU_OPT_POPUP | MU_OPT_NOTITLE | MU_OPT_NORESIZE | MU_OPT_CLOSED;
+    if (mu_begin_window_ex(ctx, name, cnt->rect, opt)) {
+        mu_layout_row(ctx, 1, (int[]){ -1 }, 0);
+        for (int i = 0; i < S.popup.count; i++) {
+            if (mu_button(ctx, S.popup.items[i])) {
+                S.popup.result_for_key = S.popup.key;
+                S.popup.result_index   = i;
+                S.popup.has_result     = true;
+                S.popup.key            = 0;
+                cnt->open = 0;
+            }
+        }
+        mu_end_window(ctx);
+    } else {
+        S.popup.key = 0;
+    }
+}
+
+/* ---- Drag and drop ------------------------------------------------------ *
+ * The source widget calls drag_source after laying out its rect; on a
+ * left-click that hits the rect we capture (tag, value). The drop target
+ * calls drop_target after laying out its rect; on the frame the user
+ * releases the mouse over a target whose tag matches the active payload,
+ * we hand it back and clear the drag.
+ *
+ * Mouse-released detection: MicroUI tracks `mouse_down` (currently held)
+ * and `mouse_pressed` (newly pressed this frame) but no "released" flag.
+ * We diff against an internal s_prev_mouse_down captured at end-of-frame. */
+static int s_prev_mouse_down = 0;
+
+void safi_ui_drag_source(mu_Context *ctx, const char *tag, uint32_t value) {
+    mu_Rect r = ctx->last_rect;
+    if (mu_mouse_over(ctx, r) && (ctx->mouse_pressed & MU_MOUSE_LEFT)) {
+        size_t n = strlen(tag);
+        if (n >= sizeof(S.drag.tag)) n = sizeof(S.drag.tag) - 1;
+        memcpy(S.drag.tag, tag, n);
+        S.drag.tag[n] = 0;
+        S.drag.value  = value;
+        S.drag.active = true;
+    }
+}
+
+bool safi_ui_drop_target(mu_Context *ctx, const char *tag, uint32_t *out_value) {
+    if (!S.drag.active || !out_value) return false;
+    bool released = (s_prev_mouse_down & MU_MOUSE_LEFT) &&
+                    !(ctx->mouse_down & MU_MOUSE_LEFT);
+    if (!released) return false;
+    if (!mu_mouse_over(ctx, ctx->last_rect)) return false;
+    if (strcmp(S.drag.tag, tag) != 0) return false;
+
+    *out_value     = S.drag.value;
+    S.drag.active  = false;
+    return true;
+}
+
+/* End-of-frame: clear stale drag state once the mouse has been released
+ * with no target consuming it, and snapshot mouse_down for next frame's
+ * release detection. */
+static void s_drag_drop_post_frame(mu_Context *ctx) {
+    if (S.drag.active && !(ctx->mouse_down & MU_MOUSE_LEFT)) {
+        S.drag.active = false;
+    }
+    s_prev_mouse_down = ctx->mouse_down;
+}
+
 /* ---- Scene tree expand/collapse state ---------------------------------- */
 #define SCENE_NODE_CAP 256
 static bool s_scene_expanded[SCENE_NODE_CAP];
@@ -1288,4 +1458,8 @@ void safi_debug_ui_draw_panels(SafiRenderer *r, ecs_world_t *world) {
     /* Floating dropdown (if any) — drawn as its own root container after
      * the Inspector window so it isn't clipped by the Inspector body. */
     s_draw_open_dropdown(ctx);
+    /* Same idea for free-floating popup pickers / context menus. */
+    s_draw_open_popup(ctx);
+    /* Tick drag-drop: clear stale state and snapshot mouse_down. */
+    s_drag_drop_post_frame(ctx);
 }
