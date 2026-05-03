@@ -65,7 +65,14 @@ typedef struct SafiGlobalTransform {
  * `eye` is all-zero the renderer falls back to the legacy convention —
  * eye = target + (0,0,3), centre = origin — so older scene files and the
  * gltf_viewer demo keep rendering unchanged. `target` is retained as a hint
- * field that some gameplay code still writes to. */
+ * field that some gameplay (orbit-camera) and inspector code still writes
+ * to.
+ *
+ * Cached `view` / `proj` matrices used to live here for ABI stability but
+ * nothing read them — view/proj are recomputed every frame from the pose
+ * fields, see `safi_camera_build_view_proj`. They were dropped along with
+ * the SCENE_VERSION 1 → 2 bump; v1 scene files still load (the deserializer
+ * silently ignores any extra json keys). */
 typedef struct SafiCamera {
     float fov_y_radians;
     float z_near;
@@ -74,8 +81,6 @@ typedef struct SafiCamera {
     vec3  eye;         /* world-space camera position                  */
     vec3  forward;     /* unit vector; where the camera looks          */
     vec3  up;          /* unit vector; view-space up (usually +Y)      */
-    mat4  view;        /* cached — unused today, kept for ABI stability */
-    mat4  proj;
 } SafiCamera;
 
 /* ---- ActiveCamera ------------------------------------------------------- *

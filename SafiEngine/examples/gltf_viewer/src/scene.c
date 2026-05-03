@@ -211,3 +211,18 @@ bool scene_setup(SafiApp *app) {
 
   return true;
 }
+
+void scene_teardown(SafiApp *app) {
+  (void)app;
+  /* Mirror scene_setup's two audio loads. The engine's audio subsystem
+   * doesn't refcount these, so failing to unload here would show up as a
+   * residual sound in `safi_audio_shutdown`. */
+  if (g_demo.click_sfx.id) {
+    safi_audio_unload(g_demo.click_sfx);
+    g_demo.click_sfx = (SafiSoundHandle){0};
+  }
+  if (g_demo.ambient_music.id) {
+    safi_audio_unload(g_demo.ambient_music);
+    g_demo.ambient_music = (SafiSoundHandle){0};
+  }
+}

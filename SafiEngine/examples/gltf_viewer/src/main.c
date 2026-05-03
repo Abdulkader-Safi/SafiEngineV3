@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
 
   safi_app_run(&app);
 
+  scene_teardown(&app);
   safi_app_shutdown(&app);
   return 0;
 }

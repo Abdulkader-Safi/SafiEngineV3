@@ -15,4 +15,10 @@
  * glTF asset fails to load — the caller should shut the app down and exit. */
 bool scene_setup(SafiApp *app);
 
+/* Release demo-owned resources that the engine doesn't track refcounts
+ * for (currently the two audio handles loaded in scene_setup). Call
+ * just before safi_app_shutdown so the audio engine's leak check stays
+ * clean. Safe to call when handles are zero. */
+void scene_teardown(SafiApp *app);
+
 #endif /* GLTF_VIEWER_SCENE_H */

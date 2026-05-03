@@ -15,6 +15,7 @@
 #include "safi/ecs/hierarchy.h"
 #include "safi/ecs/stable_id.h"
 #include "safi/editor/editor_camera.h"
+#include "safi/editor/editor_state.h"
 #include "safi/core/log.h"
 
 #include <cJSON.h>
@@ -22,7 +23,11 @@
 #include <string.h>
 #include <stdio.h>
 
-#define SCENE_VERSION 1
+/* v1 → v2: SafiCamera dropped the cached `view` / `proj` mat4 fields.
+ * v1 files load unchanged (the camera deserializer doesn't touch those
+ * keys); the bump exists so the warning fires consistently the moment a
+ * future load discovers the file is older. */
+#define SCENE_VERSION 2
 #define MAX_ENTITIES  1024
 
 /* ---- String pool -------------------------------------------------------- *
@@ -220,9 +225,15 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
     }
 
     cJSON *version = cJSON_GetObjectItem(root, "version");
-    if (!version || version->valueint != SCENE_VERSION) {
-        SAFI_LOG_WARN("scene: version mismatch (expected %d, got %d)",
-                      SCENE_VERSION, version ? version->valueint : -1);
+    int file_v = version ? version->valueint : -1;
+    if (file_v != SCENE_VERSION) {
+        if (file_v >= 1 && file_v < SCENE_VERSION) {
+            SAFI_LOG_INFO("scene: loading v%d file as best-effort (current v%d)",
+                          file_v, SCENE_VERSION);
+        } else {
+            SAFI_LOG_WARN("scene: unexpected version %d (expected %d)",
+                          file_v, SCENE_VERSION);
+        }
     }
 
     cJSON *entities = cJSON_GetObjectItem(root, "entities");
@@ -231,6 +242,12 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
         cJSON_Delete(root);
         return false;
     }
+
+    /* Capture the current selection by stable id so we can restore it
+     * after `safi_scene_clear` wipes the live entities. Cap is generous
+     * for hand-driven multi-select; anything past 64 is silently dropped. */
+    SafiStableId saved_sel[64];
+    int saved_sel_count = safi_editor_capture_selection_ids(world, saved_sel, 64);
 
     /* Clear previous scene + string pool. */
     safi_scene_clear(world);
@@ -301,6 +318,13 @@ bool safi_scene_load(ecs_world_t *world, const char *path) {
 
     free(map);
     cJSON_Delete(root);
+
+    /* Re-resolve any selection ids we captured before the clear. Ids
+     * that no longer correspond to any entity in the file are dropped
+     * silently (the entity was deleted in the saved scene). */
+    if (saved_sel_count > 0) {
+        safi_editor_restore_selection_ids(world, saved_sel, saved_sel_count);
+    }
 
     SAFI_LOG_INFO("scene: loaded %d entities from '%s'", entity_count, path);
     return true;

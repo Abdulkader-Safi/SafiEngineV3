@@ -22,6 +22,11 @@
 #include <stdbool.h>
 #include <flecs.h>
 
+/* Forward decl for SafiStableId — components.h transitively includes this
+ * file, so we can't pull components.h in here. The full definition is
+ * needed only at .c sites that touch the struct's contents. */
+typedef struct SafiStableId SafiStableId;
+
 typedef enum SafiEditorMode {
     SAFI_EDITOR_MODE_EDIT   = 0,  /* default; gameplay paused, world editable */
     SAFI_EDITOR_MODE_PLAY   = 1,  /* fixed-update + game pipelines run        */
@@ -75,5 +80,23 @@ ecs_entity_t safi_editor_get_selected     (const ecs_world_t *world);
 /* Replaces the selection with exactly `e` (clears every prior tag, then
  * tags `e`). Pass 0 to clear without selecting anything new. */
 void         safi_editor_set_selected     (ecs_world_t *world, ecs_entity_t e);
+
+/* ---- Selection persistence across scene reloads ------------------------ *
+ * `safi_scene_load` clears every named entity and rebuilds the world, so
+ * any ecs_entity_t we held points at a dead generation afterwards.
+ * `SafiStableId` is the one identifier that survives the rebuild — these
+ * helpers convert the live selection set to / from a list of ids so the
+ * scene loader can replay it.
+ *
+ * Capture: walks the selection, looks up SafiStableId on each entity,
+ * writes up to `cap` ids and returns the count actually written.
+ * Restore: clears whatever's currently tagged, then re-resolves each id
+ * to a live entity and re-tags. Ids that don't resolve are dropped. */
+
+int  safi_editor_capture_selection_ids(const ecs_world_t *world,
+                                        SafiStableId *out, int cap);
+
+void safi_editor_restore_selection_ids(ecs_world_t *world,
+                                        const SafiStableId *ids, int count);
 
 #endif /* SAFI_EDITOR_EDITOR_STATE_H */

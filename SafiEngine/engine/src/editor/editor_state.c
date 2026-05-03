@@ -1,5 +1,6 @@
 #include "safi/editor/editor_state.h"
 #include "safi/ecs/components.h"
+#include "safi/ecs/stable_id.h"
 
 SafiEditorMode safi_editor_get_mode(const ecs_world_t *world) {
     const SafiEditorState *s = ecs_singleton_get(world, SafiEditorState);
@@ -135,4 +136,37 @@ ecs_entity_t safi_editor_get_selected(const ecs_world_t *world) {
 void safi_editor_set_selected(ecs_world_t *world, ecs_entity_t e) {
     safi_editor_clear_selection(world);
     safi_editor_add_selection(world, e);
+}
+
+/* ---- Persistence across reloads ---------------------------------------- */
+
+int safi_editor_capture_selection_ids(const ecs_world_t *world,
+                                      SafiStableId *out, int cap) {
+    if (!out || cap <= 0) return 0;
+
+    /* Reuse the live-selection collector. 256 covers any plausible
+     * hand-driven multi-select; we silently drop the tail past `cap`. */
+    enum { TMP = 256 };
+    ecs_entity_t buf[TMP];
+    int n_ent = safi_editor_selection(world, buf, TMP);
+
+    int n_ids = 0;
+    for (int i = 0; i < n_ent && n_ids < cap; i++) {
+        const SafiStableId *sid = ecs_get(world, buf[i], SafiStableId);
+        if (sid && !safi_stable_id_is_zero(*sid)) {
+            out[n_ids++] = *sid;
+        }
+    }
+    return n_ids;
+}
+
+void safi_editor_restore_selection_ids(ecs_world_t *world,
+                                       const SafiStableId *ids, int count) {
+    safi_editor_clear_selection(world);
+    if (!ids || count <= 0) return;
+
+    for (int i = 0; i < count; i++) {
+        ecs_entity_t e = safi_scene_find_entity_by_stable_id(world, ids[i]);
+        if (e) safi_editor_add_selection(world, e);
+    }
 }
