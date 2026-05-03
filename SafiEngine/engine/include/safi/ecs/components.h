@@ -91,6 +91,15 @@ typedef struct SafiActiveCamera { char _unused; } SafiActiveCamera;
  * billboards) should carry the same tag. */
 typedef struct SafiEngineOwned { char _unused; } SafiEngineOwned;
 
+/* ---- Selected ----------------------------------------------------------- *
+ * Tag component — marks entities currently selected in the editor. Carried
+ * on each selected entity (not centrally on the editor singleton) so any
+ * number of entities can be in the active selection. Runtime-only: never
+ * serialized, never observed by the change bus. Use the selection helpers
+ * in `safi/editor/editor_state.h` (`safi_editor_add_selection`, etc.) to
+ * mutate it; raw `ecs_add(... SafiSelected)` works too. */
+typedef struct SafiSelected { char _unused; } SafiSelected;
+
 /* ---- MeshRenderer ------------------------------------------------------- */
 typedef struct SafiMeshRenderer {
     SafiModelHandle model;   /* asset-registry handle; 0 = nothing to draw */
@@ -197,6 +206,7 @@ extern ECS_COMPONENT_DECLARE(SafiGlobalTransform);
 extern ECS_COMPONENT_DECLARE(SafiCamera);
 extern ECS_COMPONENT_DECLARE(SafiActiveCamera);
 extern ECS_COMPONENT_DECLARE(SafiEngineOwned);
+extern ECS_COMPONENT_DECLARE(SafiSelected);
 extern ECS_COMPONENT_DECLARE(SafiMeshRenderer);
 extern ECS_COMPONENT_DECLARE(SafiPrimitive);
 extern ECS_COMPONENT_DECLARE(SafiName);

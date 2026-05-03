@@ -72,9 +72,8 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
     ecs_singleton_set(app->world, SafiInput, {0});
     ecs_singleton_set(app->world, SafiTime,  {0});
     ecs_singleton_set(app->world, SafiEditorState, {
-        .mode            = SAFI_EDITOR_MODE_EDIT,
-        .selected_tool   = SAFI_EDITOR_TOOL_SELECT,
-        .selected_entity = 0,
+        .mode          = SAFI_EDITOR_MODE_EDIT,
+        .selected_tool = SAFI_EDITOR_TOOL_SELECT,
     });
 
     if (desc->enable_debug_ui) {
