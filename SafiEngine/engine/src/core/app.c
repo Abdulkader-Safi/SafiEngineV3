@@ -9,6 +9,7 @@
 #include "safi/editor/editor_camera.h"
 #include "safi/editor/editor_gizmo.h"
 #include "safi/editor/editor_shortcuts.h"
+#include "safi/editor/undo.h"
 #include "safi/input/input.h"
 #include "safi/render/assets.h"
 #include "safi/physics/physics.h"
@@ -113,6 +114,12 @@ bool safi_app_init(SafiApp *app, const SafiAppDesc *desc) {
      * are covered. Undo/redo subscribes later; in the meantime the bus
      * is dormant with zero subscribers. */
     safi_change_bus_install(app->world);
+
+    /* Editor undo/redo ring — subscribes to the change bus and seeds its
+     * per-entity baseline cache from the world's named entities. */
+    if (desc->enable_debug_ui) {
+        safi_undo_install(app->world);
+    }
 
     /* Engine-owned systems: primitives build their GPU resources on
      * EcsPreStore; render consumes everything on EcsOnStore. */
